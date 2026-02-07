@@ -5,6 +5,7 @@ import parentRoutes from "./routes/parentRoutes.js";
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import requestLoggingPlugin from "./plugins/requestLoggingPlugin.js";
+import { supabase } from "./config/supabaseClient.js";
 
 const fastify = Fastify({
   logger,
@@ -15,6 +16,24 @@ fastify.register(requestLoggingPlugin);
 fastify.register(authRoutes, { prefix: "/api" });
 fastify.register(driverRoutes, { prefix: "/api" });
 fastify.register(parentRoutes, { prefix: "/api" });
+
+fastify.get("/api/health", async (request, reply) => {
+  try {
+    const { error } = await supabase
+      .from("users_meta")
+      .select("id", { count: "exact", head: true })
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    return reply.status(200).send({ status: "ok", timestamp: new Date().toISOString() });
+  } catch (error) {
+    request.log.error({ error }, "Health check failed");
+    return reply.status(503).send({ status: "error", message: "Supabase unavailable" });
+  }
+});
 
 async function start() {
   try {

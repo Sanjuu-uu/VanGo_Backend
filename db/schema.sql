@@ -4,6 +4,7 @@ create table if not exists users_meta (
   role text not null check (role in ('driver', 'parent')),
   email_verified_at timestamptz,
   phone_verified_at timestamptz,
+  profile_completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -33,12 +34,14 @@ create table if not exists vehicles (
   distance_km numeric,
   image_url text,
   rating numeric not null default 5 check (rating >= 0 and rating <= 5),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint vehicles_driver_unique unique (driver_id)
 );
 
 create table if not exists driver_invites (
   id uuid primary key default gen_random_uuid(),
   driver_id uuid not null references drivers (id) on delete cascade,
+  code_plain text not null,
   code_hash text not null,
   expires_at timestamptz,
   max_uses integer not null default 1,
@@ -77,6 +80,18 @@ create table if not exists parent_driver_links (
   created_at timestamptz not null default now()
 );
 
+create table if not exists parent_payments (
+  id uuid primary key default gen_random_uuid(),
+  parent_id uuid not null references parents (id) on delete cascade,
+  title text not null default 'Monthly Fee',
+  amount numeric not null check (amount >= 0),
+  status text not null default 'pending' check (status in ('pending', 'paid', 'failed', 'overdue')),
+  method text default 'Card',
+  due_date date,
+  paid_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists parent_notifications (
   id uuid primary key default gen_random_uuid(),
   parent_id uuid not null references parents (id) on delete cascade,
@@ -110,6 +125,7 @@ create table if not exists messages (
 
 create index if not exists idx_driver_invites_hash on driver_invites (code_hash);
 create index if not exists idx_parent_driver_links_child on parent_driver_links (child_id);
+create index if not exists idx_parent_payments_parent on parent_payments (parent_id, created_at desc);
 create index if not exists idx_parent_notifications_parent on parent_notifications (parent_id, created_at desc);
 create index if not exists idx_message_threads_parent on message_threads (parent_id, last_activity desc);
 create index if not exists idx_messages_thread on messages (thread_id, created_at);

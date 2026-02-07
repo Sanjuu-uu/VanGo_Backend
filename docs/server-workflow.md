@@ -22,6 +22,7 @@ This document explains how the Fastify server inside `VanGo_Backend` runs, what 
 2. Install dependencies with `npm install`.
 3. Run `npm start` for watch mode or `npm run start:prod` for a single run. Both scripts load `.env` automatically via `--env-file=.env`.
 4. Watch the terminal output for lines such as `API listening on 8080` and request logs in the format `reqId`, `method`, `url`, `statusCode`, and `durationMs`.
+5. Call `curl http://localhost:8080/api/health` before opening either Flutter app. Both apps read this endpoint on launch and stay in an offline splash state unless it returns 200.
 
 ## Supabase Integration
 1. **Auth:** Supabase Auth issues the JWTs that `verifySupabaseJwt` consumes. The issuer must match `${SUPABASE_URL}/auth/v1`, and the JWKS URL must point to `.../auth/v1/.well-known/jwks.json` so key rotation works automatically.

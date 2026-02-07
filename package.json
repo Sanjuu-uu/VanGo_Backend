@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --env-file=.env --watch src/server.js",
     "start:prod": "node --env-file=.env src/server.js",
-    "lint": "eslint \"src/**/*.js\" --max-warnings=0 || true"
+    "lint": "eslint \"src/**/*.js\" --max-warnings=0 || true",
+    "smoke": "node --env-file=.env scripts/workflowSmokeTest.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.1",

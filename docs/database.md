@@ -1,18 +1,13 @@
-# VanGo Database Reference
+# VanGo Supabase (PostgreSQL) DB Reference
 
 This file summarizes the Supabase Postgres schema required by the backend. Run `db/schema.sql` inside the Supabase SQL editor so every table exists before testing.
-
-## Applying the Schema
-1. Open your Supabase project dashboard.
-2. Navigate to **SQL Editor** → **New Query**.
-3. Paste the full contents of `db/schema.sql` from this repository.
-4. Execute the script once. It is idempotent thanks to `create table if not exists`.
+.
 
 ## Tables
 ### `users_meta`
 - Source file: `src/services/profileService.js` (`upsertUserMeta`).
-- Stores `supabase_user_id`, `role`, `email_verified_at`, and `phone_verified_at`.
-- Populated by `/api/auth/complete` so Flutter apps know when both verifications are done.
+- Stores `supabase_user_id`, `role`, `email_verified_at`, `phone_verified_at`, and `profile_completed_at`.
+- Updated exclusively through `/api/auth/progress` so the mobile apps and `/api/auth/status` share a single source of truth for onboarding.
 
 ### `drivers`
 - Source file: `profileService.upsertDriverProfile`.
@@ -31,6 +26,7 @@ This file summarizes the Supabase Postgres schema required by the backend. Run `
 ### `parents`
 - Source file: `profileService.upsertParentProfile`.
 - Each record links back to `supabase_user_id` and stores contact info.
+- `fullName`/`phone` payloads from the parent app map to `full_name`/`phone` columns, so `/api/auth/progress` must run first to satisfy the FK into `users_meta`.
 
 ### `children`
 - Source file: `src/routes/parentRoutes.js` (children endpoints).
@@ -41,6 +37,11 @@ This file summarizes the Supabase Postgres schema required by the backend. Run `
 - Bridges parents (via `child_id`) to drivers using invite codes.
 - Created and set to `pending` inside `/api/parents/link-driver`.
 
+### `parent_payments`
+- Stores transport invoices for parents once a child is linked to a driver.
+- Seeded during `/api/parents/link-driver` so the parent app can render transaction history.
+- Fields: `title`, `amount`, `status`, `method`, `due_date`, `paid_at`, and timestamps.
+
 ### `parent_notifications`
 - Read through `/api/parents/notifications` and updated via `/api/parents/notifications/:notificationId/read`.
 - Use this table to power the parent inbox in the Flutter app.
@@ -48,6 +49,11 @@ This file summarizes the Supabase Postgres schema required by the backend. Run `
 ### `message_threads` & `messages`
 - Back the messaging endpoints under `/api/parents/messages/*`.
 - `ensureThreadAccess()` in `parentRoutes.js` validates ownership before queries or inserts.
+
+## Helper Scripts & Seed Data
+- `scripts/ensureManualUsers.js` and `scripts/getAccessToken.js` provision repeatable driver/parent test users in Supabase and print JWTs for manual endpoint calls.
+- `scripts/upsertParentProfile.js` and `scripts/seedParentTestData.js` keep the `parents`, `parent_notifications`, `message_threads`, and `messages` tables populated without relying on Flutter-side mocks.
+- `scripts/workflowSmokeTest.js` exercises the schema end to end—if it fails on a table insert/update, revisit `db/schema.sql` first.
 
 ## Operational Notes
 - All write operations use the Supabase **service role** key from `.env`. Never expose that key to the mobile apps.
