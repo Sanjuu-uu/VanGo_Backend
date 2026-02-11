@@ -131,3 +131,65 @@ create index if not exists idx_parent_payments_parent on parent_payments (parent
 create index if not exists idx_parent_notifications_parent on parent_notifications (parent_id, created_at desc);
 create index if not exists idx_message_threads_parent on message_threads (parent_id, last_activity desc);
 create index if not exists idx_messages_thread on messages (thread_id, created_at);
+
+
+create policy "Drivers upload own documents"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'driver-documents'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+
+create policy "Drivers update own documents"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'driver-documents'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+create policy "Drivers read own documents"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'driver-documents'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+create policy "Drivers upload own face photo"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'driver-photos'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+create policy "Drivers update own face photo"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'driver-photos'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+create policy "Drivers read own face photo"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'driver-photos'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+alter table drivers
+add column if not exists face_photo_uploaded_at timestamptz,
+add column if not exists verification_status text
+default 'pending'
+check (verification_status in ('pending', 'approved', 'rejected'));
