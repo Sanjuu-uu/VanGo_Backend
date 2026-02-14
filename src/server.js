@@ -9,6 +9,7 @@ import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import requestLoggingPlugin from "./plugins/requestLoggingPlugin.js";
 import { supabase } from "./config/supabaseClient.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
 
 const fastify = Fastify({
   logger,
@@ -28,6 +29,7 @@ fastify.register(driverRoutes, { prefix: "/api" });
 fastify.register(parentRoutes, { prefix: "/api" });
 fastify.register(adminRoutes, { prefix: "/api" });
 fastify.register(adminAuthRoutes, { prefix: "/api" });
+fastify.register(notificationRoutes, { prefix: "/api" });
 
 fastify.get("/api/health", async (request, reply) => {
   try {
