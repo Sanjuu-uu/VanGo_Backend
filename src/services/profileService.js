@@ -1,6 +1,6 @@
 import { supabase } from "../config/supabaseClient.js";
 
-export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, phoneVerifiedAt, profileCompletedAt,fcmToken }) {
+export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, phoneVerifiedAt, profileCompletedAt }) {
   if (!supabaseUserId) {
     throw new Error("supabaseUserId is required for upsertUserMeta");
   }
@@ -20,9 +20,6 @@ export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, ph
   }
   if (profileCompletedAt !== undefined) {
     payload.profile_completed_at = profileCompletedAt ?? null;
-  }
-  if(fcmToken !== undefined) {
-    payload.fcm_token = fcmToken;
   }
 
   if (Object.keys(payload).length === 1) {
@@ -71,20 +68,6 @@ function buildDriverPayload(supabaseUserId, data) {
 }
 
 export async function upsertDriverProfile(supabaseUserId, data) {
-  if (data?.phone) {
-    const { data: existing } = await supabase
-      .from("drivers")
-      .select("supabase_user_id")
-      .eq("phone", data.phone)
-      .maybeSingle();
-
-    if (existing && existing.supabase_user_id !== supabaseUserId) {
-      const error = new Error("Mobile number already used by another driver");
-      error.statusCode = 409; 
-      throw error;
-    }
-  }
-
   const payload = buildDriverPayload(supabaseUserId, data ?? {});
 
   const { data: result, error } = await supabase
@@ -176,19 +159,6 @@ export async function getDriverVehicle(driverId) {
 }
 
 export async function upsertParentProfile(supabaseUserId, data) {
-  if (data?.phone) {
-    const { data: existing } = await supabase
-      .from("parents")
-      .select("supabase_user_id")
-      .eq("phone", data.phone)
-      .maybeSingle();
-
-    if (existing && existing.supabase_user_id !== supabaseUserId) {
-      const error = new Error("Mobile number already used by another parent");
-      error.statusCode = 409;
-      throw error;
-    }
-  }
   // 1. Save to 'parents' table (Your data confirms this works)
   const payload = {
     supabase_user_id: supabaseUserId,
@@ -221,7 +191,6 @@ export async function upsertParentProfile(supabaseUserId, data) {
       supabase_user_id: supabaseUserId,
       profile_completed_at: new Date().toISOString(), // This stops the loop
       role: "parent",
-      fcm_token: data?.fcmToken ?? undefined, // Update FCM token if provided
     }, { onConflict: "supabase_user_id" });
 
   if (metaError) {
