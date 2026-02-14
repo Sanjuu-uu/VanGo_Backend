@@ -15,7 +15,7 @@ const fastify = Fastify({
 });
 
 await fastify.register(cors, {
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "https://vango.lk"],
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "https://vango.lk", "https://www.vango.lk"],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
