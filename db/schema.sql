@@ -54,6 +54,8 @@ create table if not exists parents (
   supabase_user_id uuid unique not null references users_meta (supabase_user_id) on delete cascade,
   full_name text,
   phone text,
+  email text,
+  relationship text, 
   notification_prefs jsonb default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
