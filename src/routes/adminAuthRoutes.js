@@ -13,101 +13,135 @@ function generateCode() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
-const authSchema = z.object({
+async function getLocationFromIp(ip) {
+  try {
+    if (ip === '127.0.0.1' || ip === '::1') return 'Localhost (Dev)';
+    const response = await fetch(`http://ip-api.com/json/${ip}`);
+    const data = await response.json();
+    return data.status === 'success' ? `${data.city}, ${data.country}` : 'Unknown Location';
+  } catch (error) { return 'Location Lookup Failed'; }
+}
+
+async function logAudit(email, ip, location, status, reason = "") {
+  await supabase.from("admin_auth_logs").insert({
+    email,
+    ip_address: ip,
+    location,
+    status,
+    user_agent: reason
+  });
+}
+
+const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6).optional(),
-  code: z.union([z.string(), z.number()]).optional(),
+  password: z.string().min(1)
 });
 
 export default async function adminAuthRoutes(fastify) {
 
-  // --- 1. ADMIN LOGIN ---
-  fastify.post("/admin/login", async (request, reply) => {
-    const parseResult = authSchema.safeParse(request.body);
+  // --- 1. SECURE ADMIN LOGIN ---
+  fastify.post("/admin/login", {
+    // LAYER 4: Rate Limiting (Specific to Login)
+    config: {
+      rateLimit: {
+        max: 5, // Only 5 attempts allowed
+        timeWindow: "15 minutes" // Block for 15 mins if exceeded
+      }
+    }
+  }, async (request, reply) => {
+    
+    // 1. Input Validation
+    const parseResult = loginSchema.safeParse(request.body);
     if (!parseResult.success) return reply.status(400).send(parseResult.error);
 
     const { email, password } = parseResult.data;
     const clientIp = getClientIp(request);
+    const location = await getLocationFromIp(clientIp);
 
     try {
-      // Check IP Whitelist
-      let { data: accessRecord } = await supabase
+      // LAYER 3: Secure Password Check (Bcrypt via Supabase)
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        await logAudit(email, clientIp, location, "failed", "Invalid Password");
+        return reply.status(401).send({ message: "Invalid credentials" });
+      }
+
+      // LAYER 1 & 2: Role & Approval Check
+      const { data: meta } = await supabase
+        .from("users_meta")
+        .select("role, is_approved")
+        .eq("supabase_user_id", authData.user.id)
+        .single();
+
+      // Check 1: Must be Admin
+      if (meta?.role !== 'admin') {
+        await logAudit(email, clientIp, location, "failed", "Role Mismatch");
+        return reply.status(403).send({ message: "Access Denied: You are not an admin." });
+      }
+
+      // Check 2: Must be Approved (The Manual Gate)
+      if (meta?.is_approved !== true) {
+        await logAudit(email, clientIp, location, "failed", "Account Not Approved");
+        return reply.status(403).send({ message: "Your account is waiting for approval by a Super Admin." });
+      }
+
+      // LAYER 4: IP Whitelist / 2FA Context Check
+      let { data: whitelist } = await supabase
         .from("admin_access_whitelist")
         .select("*")
         .eq("email", email)
         .eq("ip_address", clientIp)
         .maybeSingle();
 
-      // IF IP IS NEW OR PENDING
-      if (!accessRecord || accessRecord.status !== 'approved') {
+      // If IP is New/Unknown -> Trigger 2FA
+      if (!whitelist || whitelist.status !== 'approved') {
         const code = generateCode();
-        const expiresAt = new Date(Date.now() + 10 * 60000); // 10 mins
+        const expiresAt = new Date(Date.now() + 5 * 60000); // 5 mins
 
-        // 1. SAVE CODE TO DB
-        const { error: upsertError } = await supabase
-          .from("admin_access_whitelist")
-          .upsert({
+        // Save Code
+        await supabase.from("admin_access_whitelist").upsert({
             email,
             ip_address: clientIp,
+            location: location,
             status: "pending",
             verification_code: code,
             code_expires_at: expiresAt.toISOString()
-          }, { onConflict: "email, ip_address" });
+        }, { onConflict: "email, ip_address" });
 
-        if (upsertError) {
-          console.error("DB Write Failed:", upsertError);
-          return reply.status(500).send({ message: "Server Error: Could not generate code." });
-        }
-
-        // 2. SEND EMAIL (Call Edge Function)
-        console.log(`[EMAIL] Sending verification code to ${email}...`);
-        
+        // Send Email (ZeptoMail)
         const { error: funcError } = await supabase.functions.invoke('send-admin-otp', {
-          body: { email, code, ip: clientIp }
+          body: { email, code, ip: clientIp, location }
         });
 
-        if (funcError) {
-          console.error("Email Sending Failed:", funcError);
-          // Optional: Fallback to console log in dev if email fails
-          console.log(`[FALLBACK] Code: ${code}`);
-          return reply.status(500).send({ message: "Failed to send verification email." });
-        }
+        if (funcError) console.error("Email Error:", funcError);
+
+        await logAudit(email, clientIp, location, "challenge", "New Device Verification");
 
         return reply.status(403).send({ 
           requiresVerification: true,
-          message: `New Device detected. Verification code sent to ${email}.` 
+          message: `Unrecognized device (${location}). Verification code sent.` 
         });
       }
 
-      // NORMAL LOGIN FLOW (IP is Approved)
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-
-      // CHECK ROLE
-      const { data: meta } = await supabase
-        .from("users_meta")
-        .select("role")
-        .eq("supabase_user_id", data.user.id)
-        .single();
-
-      if (meta?.role !== 'admin') {
-        return reply.status(403).send({ message: "Not authorized as admin" });
-      }
-
-      return reply.send({ session: data.session, user: data.user });
+      // SUCCESS: All 4 Layers Passed
+      await logAudit(email, clientIp, location, "success", "Login Authorized");
+      return reply.send({ session: authData.session, user: authData.user });
 
     } catch (error) {
       request.log.error(error);
-      return reply.status(401).send({ message: error.message });
+      return reply.status(500).send({ message: "Internal Server Error" });
     }
   });
 
-  // --- 2. VERIFY IP ROUTE (Keep existing logic) ---
+  // --- 2. VERIFY IP (2FA) ---
   fastify.post("/admin/verify-ip", async (request, reply) => {
     const { email, code } = request.body;
     const clientIp = getClientIp(request);
 
-    // Fetch Record
     const { data: record, error } = await supabase
       .from("admin_access_whitelist")
       .select("*")
@@ -115,11 +149,8 @@ export default async function adminAuthRoutes(fastify) {
       .eq("ip_address", clientIp)
       .single();
 
-    if (error || !record) {
-      return reply.status(400).send({ message: "No verification request found." });
-    }
+    if (error || !record) return reply.status(400).send({ message: "No verification request found." });
 
-    // COMPARE STRINGS
     if (String(record.verification_code).trim() !== String(code).trim()) {
       return reply.status(400).send({ message: "Invalid code" });
     }
@@ -128,89 +159,47 @@ export default async function adminAuthRoutes(fastify) {
       return reply.status(400).send({ message: "Code expired" });
     }
 
-    // APPROVE IP
-    await supabase
-      .from("admin_access_whitelist")
+    // Approve IP
+    await supabase.from("admin_access_whitelist")
       .update({ status: "approved", verification_code: null, code_expires_at: null })
       .eq("id", record.id);
 
-    return reply.send({ success: true, message: "IP Verified!" });
+    return reply.send({ success: true, message: "Device verified successfully." });
   });
+
+  // --- 3. REGISTER (Updated with Default Approval = False) ---
   fastify.post("/admin/register", async (request, reply) => {
-    // Validate Input
-    const parseResult = z.object({
-      email: z.string().email(),
-      password: z.string().min(6),
-    }).safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({ message: "Invalid email or password (min 6 chars)" });
-    }
-
+    const parseResult = loginSchema.safeParse(request.body); // Reusing login schema for simplicity
+    if (!parseResult.success) return reply.status(400).send(parseResult.error);
+    
     const { email, password } = parseResult.data;
     const clientIp = getClientIp(request);
 
     try {
-      // 1. Create User in Supabase (Triggers Email if enabled)
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { role: 'admin' } // Assign role immediately
-        }
+      // Create User
+      const { data, error } = await supabase.auth.signUp({ 
+          email, 
+          password, 
+          options: { data: { role: 'admin' } } 
       });
-
       if (error) throw error;
-
-      // 2. If User already exists but unverified, Supabase returns user but no session
-      if (data.user && data.user.identities && data.user.identities.length === 0) {
-         return reply.status(400).send({ message: "This email is already registered." });
-      }
-
-      // 3. Create Database Entries
-      // We set role to 'admin' so they are ready once they verify email
-      await supabase.from("users_meta").upsert({ 
-        supabase_user_id: data.user.id, 
-        role: "admin" 
-      });
       
-      // We whitelist this IP as 'pending' so the MFA flow works later
+      // Save Meta - DEFAULT APPROVED = FALSE
+      await supabase.from("users_meta").upsert({ 
+          supabase_user_id: data.user.id, 
+          role: "admin",
+          is_approved: false // <--- VITAL: User cannot log in until you manually change this to TRUE
+      });
+
       await supabase.from("admin_access_whitelist").insert({ 
-        email, 
-        ip_address: clientIp, 
-        status: "pending" 
+          email, 
+          ip_address: clientIp, 
+          status: "pending" 
       });
 
-      return reply.send({ 
-        success: true, 
-        message: "Registration successful! Please check your email to verify your account." 
-      });
-
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ message: error.message });
-    }
-  });
-  // --- VERIFY EMAIL CODE ROUTE ---
-  fastify.post("/admin/verify-email", async (request, reply) => {
-    const { email, code } = request.body;
-
-    try {
-      // 'signup' type is used for the first-time email verification
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: code,
-        type: 'signup'
-      });
-
-      if (error) throw error;
-
-      return reply.send({ 
-        success: true, 
-        message: "Email verified successfully! You can now log in." 
-      });
-    } catch (error) {
-      return reply.status(400).send({ message: error.message || "Invalid Code" });
+      return reply.send({ message: "Registered! Account pending approval by Super Admin." });
+    } catch (e) {
+      return reply.status(500).send({ message: e.message });
     }
   });
 }

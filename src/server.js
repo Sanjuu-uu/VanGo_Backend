@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import authRoutes from "./routes/authRoutes.js";
 import driverRoutes from "./routes/driverRoutes.js";
 import parentRoutes from "./routes/parentRoutes.js";
@@ -11,8 +12,21 @@ import requestLoggingPlugin from "./plugins/requestLoggingPlugin.js";
 import { supabase } from "./config/supabaseClient.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 
-const fastify = Fastify({
-  logger,
+const fastify = Fastify({ 
+  logger: {
+    level: 'info',
+    transport: {
+      target: 'pino-pretty', // Makes logs readable (optional)
+      options: {
+        colorize: true
+      }
+    }
+  }
+});
+
+await fastify.register(rateLimit, {
+  max: 100, // Max 100 requests per minute per IP globally
+  timeWindow: "1 minute",
 });
 
 await fastify.register(cors, {

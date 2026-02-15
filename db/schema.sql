@@ -193,3 +193,90 @@ add column if not exists face_photo_uploaded_at timestamptz,
 add column if not exists verification_status text
 default 'pending'
 check (verification_status in ('pending', 'approved', 'rejected'));
+
+ALTER TABLE users_meta 
+DROP CONSTRAINT IF EXISTS users_meta_role_check;
+
+ALTER TABLE users_meta 
+ADD CONSTRAINT users_meta_role_check 
+CHECK (role IN ('driver', 'parent', 'admin'));
+
+
+ALTER TABLE users_meta 
+ADD COLUMN IF NOT EXISTS is_approved boolean DEFAULT false;
+
+ALTER TABLE drivers
+ADD COLUMN IF NOT EXISTS face_photo_uploaded_at timestamptz,
+ADD COLUMN IF NOT EXISTS verification_status text DEFAULT 'pending' 
+CHECK (verification_status IN ('pending', 'approved', 'rejected'));
+
+
+CREATE TABLE IF NOT EXISTS admin_access_whitelist (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  ip_address text NOT NULL,
+  location text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  verification_code text,
+  code_expires_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+
+ALTER TABLE admin_access_whitelist 
+DROP CONSTRAINT IF EXISTS admin_access_whitelist_email_ip_address_key;
+
+ALTER TABLE admin_access_whitelist 
+DROP CONSTRAINT IF EXISTS unique_email_ip;
+
+ALTER TABLE admin_access_whitelist 
+ADD CONSTRAINT unique_email_ip UNIQUE (email, ip_address);
+
+ALTER TABLE admin_access_whitelist DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS admin_auth_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  ip_address text NOT NULL,
+  location text,
+  user_agent text,  
+  status text NOT NULL, 
+  attempted_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE admin_auth_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admins can view auth logs" ON admin_auth_logs;
+CREATE POLICY "Admins can view auth logs"
+ON admin_auth_logs
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users_meta 
+    WHERE users_meta.supabase_user_id = auth.uid() 
+    AND users_meta.role = 'admin'
+  )
+);
+
+
+DROP POLICY IF EXISTS "Admins can read all driver documents" ON storage.objects;
+CREATE POLICY "Admins can read all driver documents"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'driver-documents' 
+  AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
+);
+
+DROP POLICY IF EXISTS "Admins can read all driver photos" ON storage.objects;
+CREATE POLICY "Admins can read all driver photos"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'driver-photos' 
+  AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
+);
+
+UPDATE users_meta 
+SET is_approved = true 
+WHERE role = 'admin';
