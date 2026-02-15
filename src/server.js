@@ -4,10 +4,13 @@ import rateLimit from "@fastify/rate-limit";
 import authRoutes from "./routes/authRoutes.js";
 import driverRoutes from "./routes/driverRoutes.js";
 import parentRoutes from "./routes/parentRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import adminAuthRoutes from "./routes/adminAuthRoutes.js";
 import { env } from "./config/env.js";
 import { logger } from "./logger.js";
 import requestLoggingPlugin from "./plugins/requestLoggingPlugin.js";
 import { supabase } from "./config/supabaseClient.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
 
 const fastify = Fastify({ 
   logger: {
@@ -26,11 +29,21 @@ await fastify.register(rateLimit, {
   timeWindow: "1 minute",
 });
 
+await fastify.register(cors, {
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "https://vango.lk", "https://www.vango.lk"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+});
+
 fastify.register(requestLoggingPlugin);
 
 fastify.register(authRoutes, { prefix: "/api" });
 fastify.register(driverRoutes, { prefix: "/api" });
 fastify.register(parentRoutes, { prefix: "/api" });
+fastify.register(adminRoutes, { prefix: "/api" });
+fastify.register(adminAuthRoutes, { prefix: "/api" });
+fastify.register(notificationRoutes, { prefix: "/api" });
 
 fastify.get("/api/health", async (request, reply) => {
   try {

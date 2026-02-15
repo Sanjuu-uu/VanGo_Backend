@@ -20,4 +20,3 @@ Thumbs.db
 dist/
 coverage/
 tmp/
-package-lock.json
