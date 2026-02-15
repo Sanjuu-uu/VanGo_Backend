@@ -159,57 +159,21 @@ export async function getDriverVehicle(driverId) {
 }
 
 export async function upsertParentProfile(supabaseUserId, data) {
-  // 1. Save to 'parents' table (Your data confirms this works)
   const payload = {
     supabase_user_id: supabaseUserId,
     full_name: data?.fullName ?? null,
     phone: data?.phone ?? null,
-    email: data?.email ?? null,
-    relationship: data?.relationship ?? null,
-    updated_at: new Date().toISOString(),
   };
 
   if (data?.notificationPrefs !== undefined) {
     payload.notification_prefs = data.notificationPrefs;
   }
 
-  const { data: parentData, error } = await supabase
-    .from("parents")
-    .upsert(payload, { onConflict: "supabase_user_id" })
-    .select()
-    .single();
+  const { error } = await supabase.from("parents").upsert(payload, {
+    onConflict: "supabase_user_id",
+  });
 
   if (error) {
     throw new Error(`Failed to upsert parent profile: ${error.message}`);
   }
-
-  // 2. FORCE 'users_meta' UPDATE using UPSERT
-  // FIX: Changed from .update() to .upsert() so it creates the row if missing.
-  const { error: metaError } = await supabase
-    .from("users_meta")
-    .upsert({
-      supabase_user_id: supabaseUserId,
-      profile_completed_at: new Date().toISOString(), // This stops the loop
-      role: "parent",
-    }, { onConflict: "supabase_user_id" });
-
-  if (metaError) {
-    console.warn("Failed to update users_meta completion status:", metaError.message);
-  }
-
-  return parentData;
-}
-
-export async function getParentProfile(supabaseUserId) {
-  const { data, error } = await supabase
-    .from("parents")
-    .select("*")
-    .eq("supabase_user_id", supabaseUserId)
-    .single();
-
-  if (error && error.code !== "PGRST116") {
-    throw new Error(error.message);
-  }
-
-  return data;
 }

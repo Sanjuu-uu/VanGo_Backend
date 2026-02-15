@@ -1,8 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { env } from "../config/env.js";
 
-const jwksUrl = new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`);
-const JWKS = createRemoteJWKSet(jwksUrl);
+const jwks = createRemoteJWKSet(new URL(env.SUPABASE_JWT_JWKS_URL));
 
 export async function verifySupabaseJwt(request, reply) {
   try {
@@ -13,9 +12,7 @@ export async function verifySupabaseJwt(request, reply) {
     }
 
     const token = authHeader.slice(7);
-
-   
-    const { payload } = await jwtVerify(token, JWKS, {
+    const { payload } = await jwtVerify(token, jwks, {
       issuer: `${env.SUPABASE_URL}/auth/v1`,
     });
 

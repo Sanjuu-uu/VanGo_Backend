@@ -7,8 +7,6 @@ import { supabase } from "../config/supabaseClient.js";
 const parentProfileSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().min(5),
-  email: z.string().email().optional(), 
-  relationship: z.string().min(1).optional(),
 });
 
 const childSchema = z.object({
@@ -103,20 +101,13 @@ export default async function parentRoutes(fastify) {
       return reply.status(401).send({ message: "Unauthenticated" });
     }
 
-    // Validate incoming data matches the updated schema
     const parseResult = parentProfileSchema.safeParse(request.body ?? {});
     if (!parseResult.success) {
       return reply.status(400).send({ errors: parseResult.error.format() });
     }
 
     try {
-      // Pass the new fields (email, relationship) to your service
-      await upsertParentProfile(request.user.id, {
-        fullName: parseResult.data.fullName,
-        phone: parseResult.data.phone,
-        email: parseResult.data.email,           // Pass email
-        relationship: parseResult.data.relationship // Pass relationship
-      });
+      await upsertParentProfile(request.user.id, parseResult.data);
       return reply.status(200).send({ status: "ok" });
     } catch (error) {
       request.log.error({ error }, "Failed to store parent profile");
@@ -124,8 +115,6 @@ export default async function parentRoutes(fastify) {
     }
   });
 
-  // ... (Rest of your routes remain unchanged) ...
-  
   fastify.post("/parents/children", { preHandler: verifySupabaseJwt }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ message: "Unauthenticated" });
