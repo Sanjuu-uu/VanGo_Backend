@@ -68,6 +68,11 @@ function buildDriverPayload(supabaseUserId, data) {
 }
 
 export async function upsertDriverProfile(supabaseUserId, data) {
+  await upsertUserMeta({
+    supabaseUserId,
+    role: "driver"
+  });
+  
   const payload = buildDriverPayload(supabaseUserId, data ?? {});
 
   const { data: result, error } = await supabase
