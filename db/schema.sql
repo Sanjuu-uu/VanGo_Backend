@@ -280,3 +280,68 @@ USING (
 UPDATE users_meta 
 SET is_approved = true 
 WHERE role = 'admin';
+
+
+
+
+
+
+
+
+
+create table transport_services (
+  id uuid primary key default gen_random_uuid(),
+
+  driver_id uuid not null 
+    references drivers(id) on delete cascade,
+
+  title text not null,
+  description text,
+
+  vehicle_type text not null,
+  price_per_month numeric not null check (price_per_month >= 0),
+
+  district text not null,
+  town text,
+
+  route_start text not null,
+  destination_school text not null,
+
+  seats_available integer not null check (seats_available >= 0),
+
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+
+alter table transport_services enable row level security;
+
+
+create policy "Driver can create own ads"
+on transport_services
+for insert
+with check (
+  driver_id in (
+    select id from drivers
+    where supabase_user_id = auth.uid()
+  )
+);
+
+
+create policy "Driver can view own ads"
+on transport_services
+for select
+using (
+  driver_id in (
+    select id from drivers
+    where supabase_user_id = auth.uid()
+  )
+);
+
+
+
+create policy "Anyone can view active ads"
+on transport_services
+for select
+using (is_active = true);
