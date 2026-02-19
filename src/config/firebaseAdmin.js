@@ -24,9 +24,9 @@ if (!admin.apps.length) {
       }),
     });
 
-    console.log("✅ Firebase Admin Initialized successfully");
+    
   } catch (error) {
-    console.error("❌ Firebase Admin initialization error:", error.message);
+    console.error("Firebase Admin initialization error:", error.message);
     process.exit(1); 
   }
 }
