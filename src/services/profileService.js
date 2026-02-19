@@ -118,34 +118,34 @@ export async function getDriverIdBySupabaseId(supabaseUserId) {
   return created.id;
 }
 
-export async function upsertDriverVehicle(driverId, vehicle) {
-  const sanitizedRoute = (() => {
-    if (typeof vehicle.routeName !== "string") {
-      return null;
-    }
-    const trimmed = vehicle.routeName.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  })();
-
-  const payload = {
-    driver_id: driverId,
-    vehicle_make: vehicle.vehicleMake,
-    vehicle_model: vehicle.vehicleModel,
-    seat_count: vehicle.seatCount,
-    route_name: sanitizedRoute,
-    vehicle_type: vehicle.vehicleType ?? "Van",
-  };
-
+export async function upsertDriverVehicle(driverId, vehicleData) {
   const { data, error } = await supabase
     .from("vehicles")
-    .upsert(payload, { onConflict: "driver_id" })
-    .select("id, driver_id, vehicle_make, vehicle_model, seat_count, route_name, vehicle_type, monthly_fee, distance_km, image_url, rating, created_at")
+    .upsert(
+      {
+        driver_id: driverId,
+        vehicle_make: vehicleData.vehicleMake,
+        vehicle_model: vehicleData.vehicleModel,
+        seat_count: vehicleData.seatCount,
+        route_name: vehicleData.routeName,
+        vehicle_type: vehicleData.vehicleType,
+        
+        // --- NEW FIELDS MAPPED HERE ---
+        vehicle_year: vehicleData.vehicleYear,
+        vehicle_color: vehicleData.vehicleColor,
+        license_plate: vehicleData.licensePlate,
+        province: vehicleData.province,
+        district: vehicleData.district,
+        city: vehicleData.city,
+      },
+      { onConflict: "driver_id" }
+    )
+    .select()
     .single();
 
-  if (error || !data) {
-    throw new Error(`Failed to upsert vehicle: ${error?.message ?? "missing vehicle"}`);
+  if (error) {
+    throw new Error(`Supabase Upsert Error: ${error.message}`);
   }
-
   return data;
 }
 

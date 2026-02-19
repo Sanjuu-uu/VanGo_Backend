@@ -20,11 +20,18 @@ const driverProfileSchema = z.object({
   emergencyContact: z.string().optional(),
 });
 
+// UPDATED: Added new structured fields
 const vehicleSchema = z.object({
   vehicleMake: z.string().min(1),
   vehicleModel: z.string().min(1),
+  vehicleYear: z.string().optional().nullable(),
+  vehicleColor: z.string().optional().nullable(),
+  licensePlate: z.string().optional().nullable(),
   seatCount: z.coerce.number().int().positive(),
   routeName: z.string().optional().nullable(),
+  province: z.string().optional().nullable(),
+  district: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
   vehicleType: z.string().optional().default("Van"),
 });
 
@@ -97,6 +104,7 @@ export default async function driverRoutes(fastify) {
     }
   });
 
+  // ... (Invite routes remain exactly the same)
   fastify.get("/drivers/invite", { preHandler: verifySupabaseJwt }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ message: "Unauthenticated" });
