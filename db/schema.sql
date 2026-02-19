@@ -288,7 +288,6 @@ WHERE role = 'admin';
 
 
 
-
 create table transport_services (
   id uuid primary key default gen_random_uuid(),
 
