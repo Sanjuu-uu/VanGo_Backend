@@ -281,11 +281,13 @@ UPDATE users_meta
 SET is_approved = true 
 WHERE role = 'admin';
 
-
-
-
-
-
+ALTER TABLE vehicles
+ADD COLUMN IF NOT EXISTS vehicle_year text,
+ADD COLUMN IF NOT EXISTS vehicle_color text,
+ADD COLUMN IF NOT EXISTS license_plate text,
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS city text;
 
 
 create table transport_services (
