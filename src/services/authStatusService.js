@@ -65,7 +65,7 @@ async function loadDriverStatus(supabaseUserId) {
     profileComplete: Boolean(driver?.first_name && driver?.last_name && driver?.phone),
     vehicleComplete,
     hasActiveInvite: Boolean(invite),
-    acePhotoUploaded: Boolean(driver?.face_photo_uploaded_at),
+    facePhotoUploaded: Boolean(driver?.face_photo_uploaded_at),
     documentsUploaded: Boolean(driver?.documents_uploaded_at),
     verificationStatus: driver?.verification_status || 'pending',
   };
