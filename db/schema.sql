@@ -346,3 +346,47 @@ create policy "Anyone can view active ads"
 on transport_services
 for select
 using (is_active = true);
+
+
+alter table transport_services
+add column if not exists vehicle_brand text,
+add column if not exists model_year text,
+
+add column if not exists route_start_lat double precision,
+add column if not exists route_start_lng double precision,
+
+add column if not exists route_stops jsonb default '[]',
+add column if not exists schools jsonb default '[]',
+
+add column if not exists morning_pickup_time text,
+add column if not exists school_arrival_time text,
+add column if not exists afternoon_departure_time text,
+add column if not exists home_drop_time text,
+
+add column if not exists operating_days jsonb default '[]',
+add column if not exists route_type text,
+
+add column if not exists safety_features jsonb default '{}',
+
+add column if not exists vehicle_images jsonb default '{}';
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS home_town text;
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS home_town text;
+
+-- Remove old single-school column
+ALTER TABLE transport_services
+DROP COLUMN IF EXISTS destination_school;
+
+-- Remove old town column if exists
+ALTER TABLE transport_services
+DROP COLUMN IF EXISTS town;
+
+-- Keep only structured location fields
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS home_town text;
