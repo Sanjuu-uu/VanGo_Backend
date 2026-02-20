@@ -33,7 +33,7 @@ async function loadUserMeta(supabaseUserId) {
 async function loadDriverStatus(supabaseUserId) {
   const { data: driver, error: driverError } = await supabase
     .from("drivers")
-    .select("id, first_name, last_name, phone")
+    .select("id, first_name, last_name, phone, face_photo_uploaded_at, documents_uploaded_at, verification_status")
     .eq("supabase_user_id", supabaseUserId)
     .maybeSingle();
 
@@ -65,6 +65,9 @@ async function loadDriverStatus(supabaseUserId) {
     profileComplete: Boolean(driver?.first_name && driver?.last_name && driver?.phone),
     vehicleComplete,
     hasActiveInvite: Boolean(invite),
+    acePhotoUploaded: Boolean(driver?.face_photo_uploaded_at),
+    documentsUploaded: Boolean(driver?.documents_uploaded_at),
+    verificationStatus: driver?.verification_status || 'pending',
   };
 }
 
@@ -106,7 +109,7 @@ async function loadParentStatus(supabaseUserId) {
 }
 
 function determineNextStep(role, steps) {
-  const order = role === "parent" ? ["email", "phone", "profile", "link"] : ["email", "phone", "profile"];
+  const order = role === "parent" ? ["email", "phone", "profile", "link"] : ["email", "phone", "profile", "verification"];
   for (const stepName of order) {
     const step = steps[stepName];
     if (!step || !step.completed) {
@@ -125,6 +128,7 @@ export async function buildAuthStatus(supabaseUserId) {
     phone: baseStep(meta?.phone_verified_at),
     profile: baseStep(meta?.profile_completed_at),
     link: role === "parent" ? baseStep(null) : undefined,
+    verification: role === "driver" ? baseStep(null) : undefined,
   };
 
   let driver = null;
@@ -134,6 +138,7 @@ export async function buildAuthStatus(supabaseUserId) {
     driver = await loadDriverStatus(supabaseUserId);
     steps.profile.completed = steps.profile.completed && driver.profileComplete && driver.vehicleComplete;
     steps.profile.completedAt = steps.profile.completed ? steps.profile.completedAt : undefined;
+    steps.verification.completed = driver.facePhotoUploaded && driver.documentsUploaded;
   } else if (role === "parent") {
     parent = await loadParentStatus(supabaseUserId);
     steps.profile.completed = steps.profile.completed && parent.profileComplete && parent.childCount > 0;

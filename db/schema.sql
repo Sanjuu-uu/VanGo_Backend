@@ -194,6 +194,9 @@ add column if not exists verification_status text
 default 'pending'
 check (verification_status in ('pending', 'approved', 'rejected'));
 
+ALTER TABLE drivers
+ADD COLUMN IF NOT EXISTS documents_uploaded_at timestamptz;
+
 ALTER TABLE users_meta 
 DROP CONSTRAINT IF EXISTS users_meta_role_check;
 
