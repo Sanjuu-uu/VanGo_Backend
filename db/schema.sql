@@ -161,33 +161,6 @@ using (
   and split_part(name, '/', 1) = auth.uid()::text
 );
 
-create policy "Drivers upload own face photo"
-on storage.objects
-for insert
-to authenticated
-with check (
-  bucket_id = 'driver-photos'
-  and split_part(name, '/', 1) = auth.uid()::text
-);
-
-create policy "Drivers update own face photo"
-on storage.objects
-for update
-to authenticated
-using (
-  bucket_id = 'driver-photos'
-  and split_part(name, '/', 1) = auth.uid()::text
-);
-
-create policy "Drivers read own face photo"
-on storage.objects
-for select
-to authenticated
-using (
-  bucket_id = 'driver-photos'
-  and split_part(name, '/', 1) = auth.uid()::text
-);
-
 alter table drivers
 add column if not exists face_photo_uploaded_at timestamptz,
 add column if not exists verification_status text
@@ -272,13 +245,11 @@ USING (
   AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
 );
 
-DROP POLICY IF EXISTS "Admins can read all driver photos" ON storage.objects;
-CREATE POLICY "Admins can read all driver photos"
-ON storage.objects FOR SELECT TO authenticated
-USING (
-  bucket_id = 'driver-photos' 
-  AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
-);
+ALTER TABLE vehicles
+ADD COLUMN IF NOT EXISTS ownership_type text CHECK (ownership_type IN ('Owner Driver', 'Leased Vehicle', 'Rented Vehicle', 'School Transport Vehicle')),
+ADD COLUMN IF NOT EXISTS vehicle_photos_uploaded_at timestamptz,
+ADD COLUMN IF NOT EXISTS vehicle_docs_uploaded_at timestamptz,
+ADD COLUMN IF NOT EXISTS vehicle_pr_docs_uploaded_at timestamptz;
 
 UPDATE users_meta 
 SET is_approved = true 

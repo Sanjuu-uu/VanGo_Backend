@@ -43,11 +43,13 @@ async function loadDriverStatus(supabaseUserId) {
 
   const driverId = driver?.id ?? null;
   let vehicleComplete = false;
+  let vehiclePhotosUploaded = false;
+  let vehicleDocsUploaded = false;
 
   if (driverId) {
     const { data: vehicle, error: vehicleError } = await supabase
       .from("vehicles")
-      .select("id")
+      .select("id, vehicle_photos_uploaded_at, vehicle_docs_uploaded_at")
       .eq("driver_id", driverId)
       .maybeSingle();
 
@@ -55,7 +57,11 @@ async function loadDriverStatus(supabaseUserId) {
       throw new Error(`Failed to load driver vehicle: ${vehicleError.message}`);
     }
 
-    vehicleComplete = Boolean(vehicle);
+    if (vehicle) {
+      vehicleComplete = true;
+      vehiclePhotosUploaded = Boolean(vehicle.vehicle_photos_uploaded_at);
+      vehicleDocsUploaded = Boolean(vehicle.vehicle_docs_uploaded_at);
+    }
   }
 
   const invite = driverId ? await fetchActiveDriverInvite(driverId) : null;
@@ -64,6 +70,8 @@ async function loadDriverStatus(supabaseUserId) {
     driverId,
     profileComplete: Boolean(driver?.first_name && driver?.last_name && driver?.phone),
     vehicleComplete,
+    vehiclePhotosUploaded,
+    vehicleDocsUploaded,
     hasActiveInvite: Boolean(invite),
     facePhotoUploaded: Boolean(driver?.face_photo_uploaded_at),
     documentsUploaded: Boolean(driver?.documents_uploaded_at),
