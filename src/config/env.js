@@ -11,6 +11,11 @@ const envSchema = z.object({
     .default("info"),
   LOG_PRETTY: z.string().default("false"),
   LOG_DESTINATION: z.string().optional(),
+
+  // Firebase Configuration
+  FIREBASE_PROJECT_ID: z.string().min(1),
+  FIREBASE_CLIENT_EMAIL: z.string().email(),
+  FIREBASE_PRIVATE_KEY: z.string().min(1),
 });
 
 const parsed = envSchema.safeParse(process.env);
