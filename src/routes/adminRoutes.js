@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { supabase } from "../config/supabaseClient.js";
+import { notificationService } from "../services/notificationService.js";
 
 // Validation for status updates
 const statusUpdateSchema = z.object({
@@ -59,12 +60,10 @@ export default async function adminRoutes(fastify) {
   });
 
   // GET /api/admin/drivers/:id/details
-  // Fetches full details + Signed URLs for documents
   fastify.get("/admin/drivers/:id/details", async (request, reply) => {
     const { id } = request.params;
 
     try {
-      // 1. Get Driver Profile
       const { data: driver, error } = await supabase
         .from("drivers")
         .select("*, vehicle:vehicles(*)")
@@ -73,9 +72,6 @@ export default async function adminRoutes(fastify) {
 
       if (error) throw error;
 
-      // 2. Generate Signed URLs for documents
-      // Assuming paths are stored as "SUPABASE_USER_ID/filename"
-      // We need the supabase_user_id from the driver record
       const userId = driver.supabase_user_id;
 
       const [faceUrl, licenseFrontUrl, licenseBackUrl] = await Promise.all([
@@ -110,19 +106,73 @@ export default async function adminRoutes(fastify) {
     try {
       const { status } = parseResult.data;
 
-      // Update the driver status
-      const { error } = await supabase
+      // 1. Fetch the driver's supabase_user_id to sync with users_meta
+      const { data: driver, error: fetchError } = await supabase
         .from("drivers")
-        .update({ 
+        .select("supabase_user_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !driver) {
+        return reply.status(404).send({ message: "Driver not found" });
+      }
+
+      // 2. Update the driver verification status in 'drivers' table
+      const { error: driverUpdateError } = await supabase
+        .from("drivers")
+        .update({
           verification_status: status,
-          // If approved, you might want to trigger a notification here
           updated_at: new Date().toISOString()
         })
         .eq("id", id);
 
-      if (error) throw error;
+      if (driverUpdateError) throw driverUpdateError;
 
-      return reply.send({ status: "ok", newStatus: status });
+      // 3. Update the global 'is_approved' flag in 'users_meta' table
+      // This allows the app to know if the user is permitted to enter the main dashboard
+      const { error: metaUpdateError } = await supabase
+        .from("users_meta")
+        .update({
+          is_approved: status === "approved",
+          updated_at: new Date().toISOString()
+        })
+        .eq("supabase_user_id", driver.supabase_user_id);
+
+      if (metaUpdateError) throw metaUpdateError;
+
+      // 4. Trigger Push Notification to the Driver
+      try {
+        let title = "Verification Update";
+        let body = "Your account status has been updated.";
+
+        if (status === "approved") {
+          title = "Verification Successful";
+          body = "Welcome! Your account is now active.";
+        } else if (status === "rejected") {
+          title = "Verification Failed";
+          body = "Please check the app for details regarding your documents.";
+        } else if (status === "pending") {
+          title = "Verification Pending";
+          body = "Your account is under review. We will notify you once approved.";
+        }
+
+        await notificationService.notifyUser(driver.supabase_user_id, title, body, {
+          type: "verification_status_change",
+          status: status
+        });
+      } catch (notifError) {
+        // We log but don't fail the request if notification fails
+        request.log.warn({ notifError }, "Failed to send status update notification");
+      }
+
+      // Note: If you have configured Supabase Realtime for the 'drivers' table,
+      // the Flutter app will update the UI immediately upon this request finishing.
+
+      return reply.send({
+        status: "ok",
+        newStatus: status,
+        appliedTo: driver.supabase_user_id
+      });
     } catch (error) {
       request.log.error({ error }, "Failed to update driver status");
       return reply.status(500).send({ message: error.message });
