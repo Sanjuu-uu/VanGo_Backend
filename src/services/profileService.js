@@ -48,25 +48,23 @@ export async function upsertUserMeta({
 }
 
 export async function updateFcmToken(supabaseUserId, fcmToken) {
-  // Use 'users_meta' as the source of truth for tokens
-  const { error } = await supabase
-  .from('users_meta')
-  .upsert({ 
-    supabase_user_id: userId, 
-    fcm_token: fcmToken,
-    role: 'driver' // <-- ADD THIS: Provide the missing required field
-  }, { 
-    onConflict: 'supabase_user_id' 
-  });
+  // Use 'UPDATE' instead of 'UPSERT' to prevent the missing 'role' constraint error
+  const { data, error } = await supabase
+    .from('users_meta')
+    .update({ 
+      fcm_token: fcmToken,
+      updated_at: new Date().toISOString() 
+    })
+    .eq('supabase_user_id', supabaseUserId) // Match the existing user
+    .select(); // Return the updated data
 
   if (error) {
-    console.error("❌ Database Upsert Error:", error.message);
+    console.error("❌ Database Update Error:", error.message);
     throw new Error(`Supabase Error: ${error.message}`);
   }
   
   return data;
 }
-
 function buildDriverPayload(supabaseUserId, data) {
   const payload = {
     supabase_user_id: supabaseUserId,
