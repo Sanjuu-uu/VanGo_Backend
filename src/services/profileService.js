@@ -48,7 +48,24 @@ export async function upsertUserMeta({
 }
 
 export async function updateFcmToken(supabaseUserId, fcmToken) {
-  return upsertUserMeta({ supabaseUserId, fcmToken });
+  // We must ensure 'fcm_token' matches your exact Postgres column name
+  const { data, error } = await supabase
+    .from('drivers') // Or your specific metadata table name
+    .upsert(
+      { 
+        id: supabaseUserId, 
+        fcm_token: fcmToken, // Mapping camelCase to snake_case
+        updated_at: new Date().toISOString() 
+      }, 
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    // Throwing the error allows the Fastify try/catch to see the details
+    throw new Error(`Supabase Error: ${error.message} (Code: ${error.code})`);
+  }
+  
+  return data;
 }
 
 function buildDriverPayload(supabaseUserId, data) {

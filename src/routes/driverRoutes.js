@@ -63,28 +63,37 @@ export default async function driverRoutes(fastify) {
     return { status: "ok", message: "Driver routes are active" };
   });
 
-  fastify.post("/drivers/fcm-token", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-    fastify.log.info("🎯 HIT: /drivers/fcm-token");
-    if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
+ fastify.post("/drivers/fcm-token", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+  fastify.log.info(`🎯 HIT: /drivers/fcm-token for user: ${request.user?.id}`);
+  
+  if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
 
-    // Validate the incoming token
-    const tokenSchema = z.object({
-      fcmToken: z.string().min(1),
-    });
-
-    const parseResult = tokenSchema.safeParse(request.body ?? {});
-    if (!parseResult.success) {
-      return reply.status(400).send({ errors: parseResult.error.format() });
-    }
-
-    try {
-      await updateFcmToken(request.user.id, parseResult.data.fcmToken);
-      return reply.status(200).send({ status: "ok", message: "Token synced perfectly" });
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ message: "Failed to save FCM token" });
-    }
+  const tokenSchema = z.object({
+    fcmToken: z.string().min(1),
   });
+
+  const parseResult = tokenSchema.safeParse(request.body ?? {});
+  if (!parseResult.success) {
+    return reply.status(400).send({ errors: parseResult.error.format() });
+  }
+
+  try {
+    // Pass the ID and the validated token string
+    await updateFcmToken(request.user.id, parseResult.data.fcmToken);
+    
+    return reply.status(200).send({ 
+      status: "ok", 
+      message: "Token synced perfectly" 
+    });
+  } catch (error) {
+    // IMPORTANT: This logs the actual DB error to your console
+    request.log.error("❌ FCM SYNC ERROR:", error); 
+    
+    return reply.status(500).send({ 
+      message: "Failed to save FCM token",
+      error: error.message // Temporarily send message to client for debugging
+    });
+  }});
 
   /**
    * ADMIN ACTION: Verify Driver
