@@ -49,16 +49,15 @@ export async function upsertUserMeta({
 
 export async function updateFcmToken(supabaseUserId, fcmToken) {
   // Use 'users_meta' as the source of truth for tokens
-  const { data, error } = await supabase
-    .from('users_meta')
-    .upsert(
-      { 
-        supabase_user_id: supabaseUserId, // Correct FK column
-        fcm_token: fcmToken,
-        updated_at: new Date().toISOString() 
-      }, 
-      { onConflict: 'supabase_user_id' }
-    );
+  const { error } = await supabase
+  .from('users_meta')
+  .upsert({ 
+    supabase_user_id: userId, 
+    fcm_token: fcmToken,
+    role: 'driver' // <-- ADD THIS: Provide the missing required field
+  }, { 
+    onConflict: 'supabase_user_id' 
+  });
 
   if (error) {
     console.error("❌ Database Upsert Error:", error.message);
