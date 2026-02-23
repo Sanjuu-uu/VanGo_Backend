@@ -11,6 +11,9 @@ import { logger } from "./logger.js";
 import requestLoggingPlugin from "./plugins/requestLoggingPlugin.js";
 import { supabase } from "./config/supabaseClient.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import trackingRoutes from "./routes/trackingRoutes.js";
+import { registerTrackingSocketServer } from "./realtime/trackingSocketServer.js";
+import { cleanupTrackingHistory } from "./services/trackingService.js";
 
 const fastify = Fastify({ 
   logger: {
@@ -30,7 +33,7 @@ await fastify.register(rateLimit, {
 });
 
 await fastify.register(cors, {
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "https://vango.lk", "https://www.vango.lk"],
+  origin: env.CORS_ALLOWED_ORIGINS,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
@@ -44,6 +47,7 @@ fastify.register(parentRoutes, { prefix: "/api" });
 fastify.register(adminRoutes, { prefix: "/api" });
 fastify.register(adminAuthRoutes, { prefix: "/api" });
 fastify.register(notificationRoutes, { prefix: "/api" });
+fastify.register(trackingRoutes, { prefix: "/api" });
 
 fastify.get("/api/health", async (request, reply) => {
   try {
@@ -63,10 +67,66 @@ fastify.get("/api/health", async (request, reply) => {
   }
 });
 
+let retentionTimer = null;
+
+async function runRetentionCleanup() {
+  try {
+    const result = await cleanupTrackingHistory(env.TRACKING_RETENTION_DAYS);
+    fastify.log.info(
+      {
+        thresholdIso: result.thresholdIso,
+        deletedHistoryRows: result.deletedHistoryRows,
+        deletedGeofenceRows: result.deletedGeofenceRows,
+      },
+      "Tracking retention cleanup completed"
+    );
+  } catch (error) {
+    fastify.log.error({ error }, "Tracking retention cleanup failed");
+  }
+}
+
+function startRetentionCleanupScheduler() {
+  if (!env.TRACKING_RETENTION_ENABLED) {
+    fastify.log.info("Tracking retention cleanup is disabled by environment");
+    return;
+  }
+
+  runRetentionCleanup();
+
+  const intervalMs = Math.max(1, env.TRACKING_RETENTION_INTERVAL_MINUTES) * 60 * 1000;
+  retentionTimer = setInterval(runRetentionCleanup, intervalMs);
+
+  fastify.log.info(
+    {
+      retentionDays: env.TRACKING_RETENTION_DAYS,
+      intervalMinutes: env.TRACKING_RETENTION_INTERVAL_MINUTES,
+    },
+    "Tracking retention cleanup scheduler started"
+  );
+}
+
 async function start() {
   try {
-    await fastify.listen({ port: env.API_PORT, host: "0.0.0.0" });
-    fastify.log.info(`API listening on ${env.API_PORT}`);
+    registerTrackingSocketServer(fastify);
+    startRetentionCleanupScheduler();
+
+    fastify.addHook("onClose", (_instance, done) => {
+      if (retentionTimer) {
+        clearInterval(retentionTimer);
+        retentionTimer = null;
+      }
+      done();
+    });
+
+    await fastify.listen({ port: env.API_PORT, host: env.API_HOST });
+    fastify.log.info(
+      {
+        host: env.API_HOST,
+        port: env.API_PORT,
+        corsAllowedOrigins: env.CORS_ALLOWED_ORIGINS,
+      },
+      "API listening"
+    );
   } catch (error) {
     fastify.log.error(error);
     process.exit(1);
