@@ -48,21 +48,21 @@ export async function upsertUserMeta({
 }
 
 export async function updateFcmToken(supabaseUserId, fcmToken) {
-  // We must ensure 'fcm_token' matches your exact Postgres column name
+  // Use 'users_meta' as the source of truth for tokens
   const { data, error } = await supabase
-    .from('drivers') // Or your specific metadata table name
+    .from('users_meta')
     .upsert(
       { 
-        id: supabaseUserId, 
-        fcm_token: fcmToken, // Mapping camelCase to snake_case
+        supabase_user_id: supabaseUserId, // Correct FK column
+        fcm_token: fcmToken,
         updated_at: new Date().toISOString() 
       }, 
-      { onConflict: 'id' }
+      { onConflict: 'supabase_user_id' }
     );
 
   if (error) {
-    // Throwing the error allows the Fastify try/catch to see the details
-    throw new Error(`Supabase Error: ${error.message} (Code: ${error.code})`);
+    console.error("❌ Database Upsert Error:", error.message);
+    throw new Error(`Supabase Error: ${error.message}`);
   }
   
   return data;
