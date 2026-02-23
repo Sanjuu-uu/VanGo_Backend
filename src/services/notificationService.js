@@ -4,17 +4,24 @@ import { supabase } from "../config/supabaseClient.js";
 export const notificationService = {
   async notifyUser(supabaseUserId, title, body, data = {}) {
     try {
-      // 1. Fetch token from Supabase
-      const { data: userMeta, error } = await supabase
-        .from("users_meta")
-        .select("fcm_token")
-        .eq("supabase_user_id", supabaseUserId)
-        .single();
+      // 1. Fetch ALL active tokens for this driver from trusted_devices
+      const { data: devices, error } = await supabase
+        .from("trusted_devices")
+        .select("push_token")
+        .eq("user_id", supabaseUserId)
+        .eq("is_revoked", false); // Only target active sessions
 
-      if (error || !userMeta?.fcm_token) {
-        console.warn(`⚠️ No FCM token for user ${supabaseUserId}`);
+      if (error || !devices || devices.length === 0) {
+        console.warn(`⚠️ No active devices found for user ${supabaseUserId}`);
         return null;
       }
+
+      // Extract just the strings, ignoring nulls
+      const tokens = devices
+        .map(device => device.push_token)
+        .filter(token => token !== null);
+
+      if (tokens.length === 0) return null;
 
       // 2. Safely format data (FCM requires all values to be strings)
       const stringifiedData = {};
@@ -23,66 +30,56 @@ export const notificationService = {
           stringifiedData[key] = String(data[key]);
         }
       });
-
-      // Add click_action so tapping the notification opens the app
       stringifiedData["click_action"] = "FLUTTER_NOTIFICATION_CLICK";
 
-      // 3. Construct BASE message (Data-Only by default to wake up the app)
+      // 3. Construct the Multicast message
       const message = {
+        tokens: tokens, // Send to array of tokens
         data: stringifiedData,
-        token: userMeta.fcm_token,
-        android: {
-          priority: "high", // Critical: Wakes up Android app in background
-        },
-        apns: {
-          payload: {
-            aps: {
-              contentAvailable: true, // Critical: Wakes up iOS app in background
-            },
-          },
-        },
+        android: { priority: "high" },
+        apns: { payload: { aps: { contentAvailable: true } } },
       };
 
-      // 4. ONLY attach visual 'notification' elements if title and body are provided
       if (title && body) {
         message.notification = { title, body };
-
-        // Android specific visual settings
         message.android.notification = {
           channelId: "vango_notifications_v3",
           sound: "default",
           priority: "MAX",
           clickAction: "FLUTTER_NOTIFICATION_CLICK",
         };
-
-        // iOS specific visual settings
-        message.apns.payload.aps.sound = "default";
-        message.apns.payload.aps.badge = 1;
-        message.apns.payload.aps.interruptionLevel = "active";
+        message.apns.payload.aps = { ...message.apns.payload.aps, sound: "default", badge: 1, interruptionLevel: "active" };
       }
 
-      // 5. Send via Firebase
-      const response = await messaging.send(message);
+      // 4. Send via Firebase using sendEachForMulticast
+      const response = await messaging.sendEachForMulticast(message);
+      console.log(`✅ Sent to ${response.successCount} devices, ${response.failureCount} failed.`);
 
-      const isDataOnly = !(title && body);
-      console.log(`✅ High-Priority Notification sent to ${supabaseUserId}. (Data-Only: ${isDataOnly})`);
+      // 5. Cleanup invalid tokens automatically
+      if (response.failureCount > 0) {
+        const failedTokens = [];
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success && (
+            resp.error.code === 'messaging/invalid-registration-token' ||
+            resp.error.code === 'messaging/registration-token-not-registered'
+          )) {
+            failedTokens.push(tokens[idx]);
+          }
+        });
+
+        if (failedTokens.length > 0) {
+          console.log(`🧹 Cleaning up ${failedTokens.length} stale tokens...`);
+          await supabase
+            .from('trusted_devices')
+            .update({ is_revoked: true }) // Mark as revoked instead of deleting for security logs
+            .in('push_token', failedTokens);
+        }
+      }
 
       return response;
 
     } catch (error) {
       console.error("❌ Push Notification Error:", error.message);
-
-      if (
-        error.code === "messaging/registration-token-not-registered" ||
-        error.code === "messaging/invalid-registration-token"
-      ) {
-        console.log(`🧹 Removing stale/invalid token for user ${supabaseUserId}`);
-        await supabase
-          .from("users_meta")
-          .update({ fcm_token: null })
-          .eq("supabase_user_id", supabaseUserId);
-      }
-
       return null;
     }
   }
