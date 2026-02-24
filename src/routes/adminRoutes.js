@@ -192,6 +192,37 @@ export default async function adminRoutes(fastify) {
     }
   });
 
+  // PATCH /api/admin/drivers/:id/status
+  fastify.patch("/admin/drivers/:id/status", async (request, reply) => {
+    const { id } = request.params;
+    const parseResult = statusUpdateSchema.safeParse(request.body);
+
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      const { status } = parseResult.data;
+
+      // Update the driver status
+      const { error } = await supabase
+        .from("drivers")
+        .update({ 
+          verification_status: status,
+          // If approved, you might want to trigger a notification here
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      return reply.send({ status: "ok", newStatus: status });
+    } catch (error) {
+      request.log.error({ error }, "Failed to update driver status");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
   fastify.get("/admin/tracking/drivers/:driverId/trips", async (request, reply) => {
     const { driverId } = request.params;
     const queryResult = limitQuerySchema.safeParse(request.query ?? {});
