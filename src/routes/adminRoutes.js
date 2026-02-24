@@ -71,7 +71,7 @@ export default async function adminRoutes(fastify) {
     try {
       const { status } = parseResult.data;
 
-      // 1. Update the driver status AND return the supabase_user_id
+      // 1. Update DB and get the driver's auth ID
       const { data: driver, error } = await supabase
         .from("drivers")
         .update({
@@ -84,7 +84,7 @@ export default async function adminRoutes(fastify) {
 
       if (error) throw error;
 
-      // 2. Determine Notification Content
+      // 2. Set the exact text for the notification
       let title = "";
       let body = "";
       if (status === "approved") {
@@ -100,23 +100,18 @@ export default async function adminRoutes(fastify) {
           "We have received your details. Our team is currently reviewing your profile.";
       }
 
-      // 3. Send Notification DIRECTLY from Node.js (No Edge Function needed!)
+      // 3. Send the Push Notification via Firebase
       if (title && body && driver.supabase_user_id) {
-        // We use your existing src/services/notificationService.js
         const pushResult = await notificationService.notifyUser(
           driver.supabase_user_id,
           title,
           body,
-          { status: status },
+          { status: status, click_action: "FLUTTER_NOTIFICATION_CLICK" },
         );
 
         if (pushResult) {
           request.log.info(
             `✅ Push notification sent directly to driver: ${driver.supabase_user_id}`,
-          );
-        } else {
-          request.log.warn(
-            `⚠️ Failed to send push notification. Check notificationService logs.`,
           );
         }
       }
