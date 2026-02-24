@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { supabase } from "../config/supabaseClient.js";
+import { notificationService } from "../services/notificationService.js";
 import {
   getTripPlayback,
   getTripGeofenceEvents,
@@ -73,48 +74,50 @@ export default async function adminRoutes(fastify) {
       // 1. Update the driver status AND return the supabase_user_id
       const { data: driver, error } = await supabase
         .from("drivers")
-        .update({ 
+        .update({
           verification_status: status,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         })
         .eq("id", id)
-        .select("supabase_user_id") 
+        .select("supabase_user_id")
         .single();
 
       if (error) throw error;
 
       // 2. Determine Notification Content
-      let title = '';
-      let body = '';
-      if (status === 'approved') {
-        title = 'Account Approved! 🎉';
-        body = 'Congratulations! You are now approved to drive with VanGo.';
-      } else if (status === 'rejected') {
-        title = 'Action Required: Account Update';
-        body = 'There was an issue with your documents. Please open the app to review.';
-      } else if (status === 'pending') {
-        title = 'Profile Under Review';
-        body = 'We have received your details. Our team is currently reviewing your profile.';
+      let title = "";
+      let body = "";
+      if (status === "approved") {
+        title = "Account Approved! 🎉";
+        body = "Congratulations! You are now approved to drive with VanGo.";
+      } else if (status === "rejected") {
+        title = "Action Required: Account Update";
+        body =
+          "There was an issue with your documents. Please open the app to review.";
+      } else if (status === "pending") {
+        title = "Profile Under Review";
+        body =
+          "We have received your details. Our team is currently reviewing your profile.";
       }
 
-      // 3. Trigger the new Custom Edge Function
+      // 3. Send Notification DIRECTLY from Node.js (No Edge Function needed!)
       if (title && body && driver.supabase_user_id) {
-        const { data: funcData, error: funcError } = await supabase.functions.invoke('send-custom-notification', {
-          body: {
-            target_user_id: driver.supabase_user_id,
-            title: title,
-            body: body,
-            custom_data: { 
-              status: status, 
-              click_action: 'FLUTTER_NOTIFICATION_CLICK' 
-            }
-          }
-        });
+        // We use your existing src/services/notificationService.js
+        const pushResult = await notificationService.notifyUser(
+          driver.supabase_user_id,
+          title,
+          body,
+          { status: status },
+        );
 
-        if (funcError) {
-          request.log.error({ funcError }, "Failed to send notification via Edge Function");
+        if (pushResult) {
+          request.log.info(
+            `✅ Push notification sent directly to driver: ${driver.supabase_user_id}`,
+          );
         } else {
-          request.log.info({ funcData }, "Custom notification dispatched");
+          request.log.warn(
+            `⚠️ Failed to send push notification. Check notificationService logs.`,
+          );
         }
       }
 
@@ -132,12 +135,14 @@ export default async function adminRoutes(fastify) {
     try {
       const { data: drivers, error } = await supabase
         .from("drivers")
-        .select(`
+        .select(
+          `
           id, first_name, last_name, phone, verification_status, face_photo_uploaded_at, created_at,
           vehicle:vehicles (
             vehicle_make, vehicle_model, vehicle_type, image_url, route_name, seat_count
           )
-        `)
+        `,
+        )
         .eq("verification_status", status)
         .order("created_at", { ascending: false });
 
@@ -185,89 +190,113 @@ export default async function adminRoutes(fastify) {
     }
   });
 
-  fastify.get("/admin/tracking/drivers/:driverId/trips", async (request, reply) => {
-    const { driverId } = request.params;
-    const queryResult = limitQuerySchema.safeParse(request.query ?? {});
-    if (!queryResult.success) {
-      return reply.status(400).send({ errors: queryResult.error.format() });
-    }
-
-    try {
-      const trips = await listDriverTripSessions(driverId, queryResult.data.limit ?? 100);
-      return reply.send(trips);
-    } catch (error) {
-      request.log.error({ error }, "Failed to fetch driver trips for admin");
-      return reply.status(500).send({ message: error.message });
-    }
-  });
-
-  fastify.get("/admin/tracking/trips/:tripId/playback", async (request, reply) => {
-    const { tripId } = request.params;
-    const queryResult = playbackQuerySchema.safeParse(request.query ?? {});
-    if (!queryResult.success) {
-      return reply.status(400).send({ errors: queryResult.error.format() });
-    }
-
-    const query = queryResult.data;
-    if (query.from && query.to && new Date(query.from).getTime() > new Date(query.to).getTime()) {
-      return reply.status(400).send({ message: "`from` must be earlier than or equal to `to`" });
-    }
-
-    try {
-      const playback = await getTripPlayback(tripId, {
-        from: query.from,
-        to: query.to,
-        limit: query.limit,
-        order: query.order,
-      });
-
-      return reply.send(playback);
-    } catch (error) {
-      request.log.error({ error }, "Failed to fetch admin trip playback");
-      return reply.status(500).send({ message: error.message });
-    }
-  });
-
-  fastify.get("/admin/tracking/trips/:tripId/geofence-events", async (request, reply) => {
-    const { tripId } = request.params;
-    const queryResult = limitQuerySchema.safeParse(request.query ?? {});
-    if (!queryResult.success) {
-      return reply.status(400).send({ errors: queryResult.error.format() });
-    }
-
-    try {
-      const events = await getTripGeofenceEvents(tripId, queryResult.data.limit ?? 100);
-      return reply.send(events);
-    } catch (error) {
-      request.log.error({ error }, "Failed to fetch admin geofence events");
-      return reply.status(500).send({ message: error.message });
-    }
-  });
-
-  fastify.put("/admin/tracking/trips/:tripId/geofence-points", async (request, reply) => {
-    const { tripId } = request.params;
-    const parseResult = geofencePointSchema.safeParse(request.body ?? {});
-
-    if (!parseResult.success) {
-      return reply.status(400).send({ errors: parseResult.error.format() });
-    }
-
-    try {
-      const driverId = await resolveTripDriverId(tripId);
-      if (!driverId) {
-        return reply.status(404).send({ message: "Trip not found" });
+  fastify.get(
+    "/admin/tracking/drivers/:driverId/trips",
+    async (request, reply) => {
+      const { driverId } = request.params;
+      const queryResult = limitQuerySchema.safeParse(request.query ?? {});
+      if (!queryResult.success) {
+        return reply.status(400).send({ errors: queryResult.error.format() });
       }
 
-      const savedPoint = await upsertTripGeofencePoint({
-        tripId,
-        driverId,
-        ...parseResult.data,
-      });
+      try {
+        const trips = await listDriverTripSessions(
+          driverId,
+          queryResult.data.limit ?? 100,
+        );
+        return reply.send(trips);
+      } catch (error) {
+        request.log.error({ error }, "Failed to fetch driver trips for admin");
+        return reply.status(500).send({ message: error.message });
+      }
+    },
+  );
 
-      return reply.send(savedPoint);
-    } catch (error) {
-      request.log.error({ error }, "Failed to upsert geofence point");
-      return reply.status(500).send({ message: error.message });
-    }
-  });
+  fastify.get(
+    "/admin/tracking/trips/:tripId/playback",
+    async (request, reply) => {
+      const { tripId } = request.params;
+      const queryResult = playbackQuerySchema.safeParse(request.query ?? {});
+      if (!queryResult.success) {
+        return reply.status(400).send({ errors: queryResult.error.format() });
+      }
+
+      const query = queryResult.data;
+      if (
+        query.from &&
+        query.to &&
+        new Date(query.from).getTime() > new Date(query.to).getTime()
+      ) {
+        return reply
+          .status(400)
+          .send({ message: "`from` must be earlier than or equal to `to`" });
+      }
+
+      try {
+        const playback = await getTripPlayback(tripId, {
+          from: query.from,
+          to: query.to,
+          limit: query.limit,
+          order: query.order,
+        });
+
+        return reply.send(playback);
+      } catch (error) {
+        request.log.error({ error }, "Failed to fetch admin trip playback");
+        return reply.status(500).send({ message: error.message });
+      }
+    },
+  );
+
+  fastify.get(
+    "/admin/tracking/trips/:tripId/geofence-events",
+    async (request, reply) => {
+      const { tripId } = request.params;
+      const queryResult = limitQuerySchema.safeParse(request.query ?? {});
+      if (!queryResult.success) {
+        return reply.status(400).send({ errors: queryResult.error.format() });
+      }
+
+      try {
+        const events = await getTripGeofenceEvents(
+          tripId,
+          queryResult.data.limit ?? 100,
+        );
+        return reply.send(events);
+      } catch (error) {
+        request.log.error({ error }, "Failed to fetch admin geofence events");
+        return reply.status(500).send({ message: error.message });
+      }
+    },
+  );
+
+  fastify.put(
+    "/admin/tracking/trips/:tripId/geofence-points",
+    async (request, reply) => {
+      const { tripId } = request.params;
+      const parseResult = geofencePointSchema.safeParse(request.body ?? {});
+
+      if (!parseResult.success) {
+        return reply.status(400).send({ errors: parseResult.error.format() });
+      }
+
+      try {
+        const driverId = await resolveTripDriverId(tripId);
+        if (!driverId) {
+          return reply.status(404).send({ message: "Trip not found" });
+        }
+
+        const savedPoint = await upsertTripGeofencePoint({
+          tripId,
+          driverId,
+          ...parseResult.data,
+        });
+
+        return reply.send(savedPoint);
+      } catch (error) {
+        request.log.error({ error }, "Failed to upsert geofence point");
+        return reply.status(500).send({ message: error.message });
+      }
+    },
+  );
 }
