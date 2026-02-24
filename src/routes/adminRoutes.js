@@ -78,7 +78,7 @@ export default async function adminRoutes(fastify) {
           updated_at: new Date().toISOString()
         })
         .eq("id", id)
-        .select("supabase_user_id") // We must select this to target the notification!
+        .select("supabase_user_id") 
         .single();
 
       if (error) throw error;
@@ -113,7 +113,6 @@ export default async function adminRoutes(fastify) {
 
         if (funcError) {
           request.log.error({ funcError }, "Failed to send notification via Edge Function");
-          // We don't throw here because the DB update was successful, we just log the push failure
         } else {
           request.log.info({ funcData }, "Custom notification dispatched");
         }
@@ -126,12 +125,11 @@ export default async function adminRoutes(fastify) {
     }
   });
 
-  // GET /api/admin/drivers?status=pending
+  // GET /api/admin/drivers
   fastify.get("/admin/drivers", async (request, reply) => {
     const status = request.query.status || "pending";
 
     try {
-      // Fetch drivers with their vehicle info
       const { data: drivers, error } = await supabase
         .from("drivers")
         .select(`
@@ -153,12 +151,10 @@ export default async function adminRoutes(fastify) {
   });
 
   // GET /api/admin/drivers/:id/details
-  // Fetches full details + Signed URLs for documents
   fastify.get("/admin/drivers/:id/details", async (request, reply) => {
     const { id } = request.params;
 
     try {
-      // 1. Get Driver Profile
       const { data: driver, error } = await supabase
         .from("drivers")
         .select("*, vehicle:vehicles(*)")
@@ -167,9 +163,6 @@ export default async function adminRoutes(fastify) {
 
       if (error) throw error;
 
-      // 2. Generate Signed URLs for documents
-      // Assuming paths are stored as "SUPABASE_USER_ID/filename"
-      // We need the supabase_user_id from the driver record
       const userId = driver.supabase_user_id;
 
       const [faceUrl, licenseFrontUrl, licenseBackUrl] = await Promise.all([
