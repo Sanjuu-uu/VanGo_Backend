@@ -58,6 +58,74 @@ export default async function adminRoutes(fastify) {
     }
   });
 
+  // PATCH /api/admin/drivers/:id/status
+  fastify.patch("/admin/drivers/:id/status", async (request, reply) => {
+    const { id } = request.params;
+    const parseResult = statusUpdateSchema.safeParse(request.body);
+
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      const { status } = parseResult.data;
+
+      // 1. Update the driver status AND return the supabase_user_id
+      const { data: driver, error } = await supabase
+        .from("drivers")
+        .update({ 
+          verification_status: status,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", id)
+        .select("supabase_user_id") // We must select this to target the notification!
+        .single();
+
+      if (error) throw error;
+
+      // 2. Determine Notification Content
+      let title = '';
+      let body = '';
+      if (status === 'approved') {
+        title = 'Account Approved! 🎉';
+        body = 'Congratulations! You are now approved to drive with VanGo.';
+      } else if (status === 'rejected') {
+        title = 'Action Required: Account Update';
+        body = 'There was an issue with your documents. Please open the app to review.';
+      } else if (status === 'pending') {
+        title = 'Profile Under Review';
+        body = 'We have received your details. Our team is currently reviewing your profile.';
+      }
+
+      // 3. Trigger the new Custom Edge Function
+      if (title && body && driver.supabase_user_id) {
+        const { data: funcData, error: funcError } = await supabase.functions.invoke('send-custom-notification', {
+          body: {
+            target_user_id: driver.supabase_user_id,
+            title: title,
+            body: body,
+            custom_data: { 
+              status: status, 
+              click_action: 'FLUTTER_NOTIFICATION_CLICK' 
+            }
+          }
+        });
+
+        if (funcError) {
+          request.log.error({ funcError }, "Failed to send notification via Edge Function");
+          // We don't throw here because the DB update was successful, we just log the push failure
+        } else {
+          request.log.info({ funcData }, "Custom notification dispatched");
+        }
+      }
+
+      return reply.send({ status: "ok", newStatus: status });
+    } catch (error) {
+      request.log.error({ error }, "Failed to update driver status");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
   // GET /api/admin/drivers?status=pending
   fastify.get("/admin/drivers", async (request, reply) => {
     const status = request.query.status || "pending";
