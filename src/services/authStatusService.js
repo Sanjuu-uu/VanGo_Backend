@@ -75,7 +75,7 @@ async function loadDriverStatus(supabaseUserId) {
     hasActiveInvite: Boolean(invite),
     facePhotoUploaded: Boolean(driver?.face_photo_uploaded_at),
     documentsUploaded: Boolean(driver?.documents_uploaded_at),
-    verificationStatus: driver?.verification_status || 'pending',
+    verificationStatus: driver?.verification_status || null,
   };
 }
 
