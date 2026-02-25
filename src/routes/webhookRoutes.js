@@ -4,8 +4,12 @@ export default async function webhookRoutes(fastify) {
   fastify.post("/webhooks/database", async (request, reply) => {
     // 1. SECURITY CHECK: Verify this request actually came from YOUR Supabase
     const secretHeader = request.headers["x-webhook-secret"];
-    if (secretHeader !== process.env.SUPABASE_WEBHOOK_SECRET) {
-      fastify.log.warn("Unauthorized webhook attempt");
+    const secretQuery = request.query["x-webhook-secret"];
+    const providedSecret = secretHeader || secretQuery;
+    if (providedSecret !== process.env.SUPABASE_WEBHOOK_SECRET) {
+      fastify.log.warn(
+        `Unauthorized webhook attempt. Provided secret: ${providedSecret}`,
+      );
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
