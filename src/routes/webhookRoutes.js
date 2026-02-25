@@ -19,7 +19,7 @@ export default async function webhookRoutes(fastify) {
       // ---------------------------------------------------------
       // EVENT 1: Driver Verification Status Changes
       // ---------------------------------------------------------
-      if (table === "driver_profiles" && type === "UPDATE") {
+      if (table === "drivers" && type === "UPDATE") {
         const newStatus = record.verification_status?.toLowerCase();
         const oldStatus = old_record?.verification_status?.toLowerCase();
 
