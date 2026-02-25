@@ -14,17 +14,18 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import trackingRoutes from "./routes/trackingRoutes.js";
 import { registerTrackingSocketServer } from "./realtime/trackingSocketServer.js";
 import { cleanupTrackingHistory } from "./services/trackingService.js";
+import webhookRoutes from "./routes/webhookRoutes.js";
 
-const fastify = Fastify({ 
+const fastify = Fastify({
   logger: {
-    level: 'info',
+    level: "info",
     transport: {
-      target: 'pino-pretty', // Makes logs readable (optional)
+      target: "pino-pretty", // Makes logs readable (optional)
       options: {
-        colorize: true
-      }
-    }
-  }
+        colorize: true,
+      },
+    },
+  },
 });
 
 await fastify.register(rateLimit, {
@@ -48,6 +49,7 @@ fastify.register(adminRoutes, { prefix: "/api" });
 fastify.register(adminAuthRoutes, { prefix: "/api" });
 fastify.register(notificationRoutes, { prefix: "/api" });
 fastify.register(trackingRoutes, { prefix: "/api" });
+fastify.register(webhookRoutes, { prefix: "/api" });
 
 fastify.get("/api/health", async (request, reply) => {
   try {
@@ -60,10 +62,14 @@ fastify.get("/api/health", async (request, reply) => {
       throw error;
     }
 
-    return reply.status(200).send({ status: "ok", timestamp: new Date().toISOString() });
+    return reply
+      .status(200)
+      .send({ status: "ok", timestamp: new Date().toISOString() });
   } catch (error) {
     request.log.error({ error }, "Health check failed");
-    return reply.status(503).send({ status: "error", message: "Supabase unavailable" });
+    return reply
+      .status(503)
+      .send({ status: "error", message: "Supabase unavailable" });
   }
 });
 
@@ -78,7 +84,7 @@ async function runRetentionCleanup() {
         deletedHistoryRows: result.deletedHistoryRows,
         deletedGeofenceRows: result.deletedGeofenceRows,
       },
-      "Tracking retention cleanup completed"
+      "Tracking retention cleanup completed",
     );
   } catch (error) {
     fastify.log.error({ error }, "Tracking retention cleanup failed");
@@ -93,7 +99,8 @@ function startRetentionCleanupScheduler() {
 
   runRetentionCleanup();
 
-  const intervalMs = Math.max(1, env.TRACKING_RETENTION_INTERVAL_MINUTES) * 60 * 1000;
+  const intervalMs =
+    Math.max(1, env.TRACKING_RETENTION_INTERVAL_MINUTES) * 60 * 1000;
   retentionTimer = setInterval(runRetentionCleanup, intervalMs);
 
   fastify.log.info(
@@ -101,7 +108,7 @@ function startRetentionCleanupScheduler() {
       retentionDays: env.TRACKING_RETENTION_DAYS,
       intervalMinutes: env.TRACKING_RETENTION_INTERVAL_MINUTES,
     },
-    "Tracking retention cleanup scheduler started"
+    "Tracking retention cleanup scheduler started",
   );
 }
 
@@ -125,7 +132,7 @@ async function start() {
         port: env.API_PORT,
         corsAllowedOrigins: env.CORS_ALLOWED_ORIGINS,
       },
-      "API listening"
+      "API listening",
     );
   } catch (error) {
     fastify.log.error(error);
