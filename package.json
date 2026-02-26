@@ -19,7 +19,7 @@
     "jose": "5.2.3",
     "pino": "9.3.1",
     "pino-pretty": "^11.2.2",
-    "socket.io": "^4.8.1",
+    "socket.io": "^4.8.3",
     "zod": "3.23.8"
   },
   "devDependencies": {

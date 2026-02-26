@@ -52,6 +52,8 @@ export default async function webhookRoutes(fastify) {
         }
       }
 
+      
+
       // ---------------------------------------------------------
       // EVENT 2: New Chat Messages (Example)
       // ---------------------------------------------------------
@@ -67,6 +69,23 @@ export default async function webhookRoutes(fastify) {
       // ---------------------------------------------------------
       // EVENT 3: Add more tables here as your app grows!
       // ---------------------------------------------------------
+else if (table === "parents" && type === "UPDATE") {
+        
+        // --- Check: Was the account just fully created? ---
+        const isNowCreated = record.is_account_created === true;
+        const wasCreatedBefore = old_record?.is_account_created === true;
+
+        // This guarantees the notification ONLY sends exactly once:
+        // the very first time 'is_account_created' flips to true.
+        if (isNowCreated && !wasCreatedBefore) {
+          await notificationService.notifyUser(
+            record.supabase_user_id, // Ensure this matches your column name!
+            "Welcome to VanGo! 🎉",
+            "Your parent profile has been successfully set up.",
+            { type: "parent_welcome" }
+          );
+        }
+      }
 
       return reply.send({ success: true, message: "Webhook processed" });
     } catch (error) {
