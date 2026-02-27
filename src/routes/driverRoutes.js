@@ -24,7 +24,7 @@ const driverProfileSchema = z.object({
   dateOfBirth: z.string().optional().nullable(),
   emergencyContact: z.string().optional().nullable(),
   fcmToken: z.string().optional().nullable(),
-}).passthrough(); // Allow extra fields too
+}).passthrough();
 
 const vehicleSchema = z.object({
   vehicleMake: z.string().min(1),
@@ -40,16 +40,17 @@ const vehicleSchema = z.object({
   vehicleType: z.string().optional().default("Van"),
 });
 
+// Updated: allow ttlMinutes to be nullable for "lifetime" QR codes
 const inviteQuerySchema = z.object({
-  ttlMinutes: z.coerce.number().int().positive().max(10080).optional(),
-  maxUses: z.coerce.number().int().positive().max(50).optional(),
+  ttlMinutes: z.coerce.number().int().positive().max(525600).optional().nullable(), // max 1 year if provided
+  maxUses: z.coerce.number().int().positive().max(100).optional(),
   force: z.coerce.boolean().optional(),
 });
 
-function resolveInviteOptions(data) {
+function resolveInviteOptions(data, defaultMaxUses = 1) {
   return {
-    ttlMinutes: data.ttlMinutes ?? 1440,
-    maxUses: data.maxUses ?? 1,
+    ttlMinutes: data.ttlMinutes ?? null, // null means it's a lifetime code
+    maxUses: data.maxUses ?? defaultMaxUses,
     force: data.force ?? false,
   };
 }
@@ -63,51 +64,48 @@ export default async function driverRoutes(fastify) {
     return { status: "ok", message: "Driver routes are active" };
   });
 
- fastify.post("/drivers/fcm-token", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-  fastify.log.info(`🎯 HIT: /drivers/fcm-token for user: ${request.user?.id}`);
-  
-  if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
+  fastify.post("/drivers/fcm-token", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    fastify.log.info(`🎯 HIT: /drivers/fcm-token for user: ${request.user?.id}`);
+    
+    if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
 
-  const tokenSchema = z.object({
-    fcmToken: z.string().min(1),
+    const tokenSchema = z.object({
+      fcmToken: z.string().min(1),
+    });
+
+    const parseResult = tokenSchema.safeParse(request.body ?? {});
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      await updateFcmToken(request.user.id, parseResult.data.fcmToken);
+      
+      return reply.status(200).send({ 
+        status: "ok", 
+        message: "Token synced perfectly" 
+      });
+    } catch (error) {
+      request.log.error("❌ FCM SYNC ERROR:", error); 
+      return reply.status(500).send({ 
+        message: "Failed to save FCM token",
+        error: error.message 
+      });
+    }
   });
-
-  const parseResult = tokenSchema.safeParse(request.body ?? {});
-  if (!parseResult.success) {
-    return reply.status(400).send({ errors: parseResult.error.format() });
-  }
-
-  try {
-    // Pass the ID and the validated token string
-    await updateFcmToken(request.user.id, parseResult.data.fcmToken);
-    
-    return reply.status(200).send({ 
-      status: "ok", 
-      message: "Token synced perfectly" 
-    });
-  } catch (error) {
-    // IMPORTANT: This logs the actual DB error to your console
-    request.log.error("❌ FCM SYNC ERROR:", error); 
-    
-    return reply.status(500).send({ 
-      message: "Failed to save FCM token",
-      error: error.message // Temporarily send message to client for debugging
-    });
-  }});
 
   /**
    * ADMIN ACTION: Verify Driver
    * Manually approve or reject a driver and trigger push notifications
+   * NEW: Creates lifetime QR invite code limited to seat capacity upon approval
    */
   fastify.post("/drivers/verify", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-    // 1. Ensure user is authenticated
     if (!request.user) {
       return reply.status(401).send({ message: "Unauthenticated" });
     }
 
     const { driverId, status, rejectionReason } = request.body;
 
-    // 2. Validate Input
     if (!['approved', 'rejected', 'pending'].includes(status)) {
       return reply.status(400).send({ message: "Invalid status." });
     }
@@ -116,18 +114,20 @@ export default async function driverRoutes(fastify) {
     }
 
     try {
-      // 3. Update verification_status in the 'drivers' table
-      const { error: dbError } = await supabase
+      // 3. Update verification_status in the 'drivers' table AND fetch internal id
+      const { data: driverRow, error: dbError } = await supabase
         .from('drivers')
         .update({
           verification_status: status,
           updated_at: new Date().toISOString()
         })
-        .eq('supabase_user_id', driverId);
+        .eq('supabase_user_id', driverId)
+        .select('id')
+        .single();
 
       if (dbError) throw dbError;
 
-      // 4. IMPORTANT: Sync with 'users_meta' table
+      // 4. Sync with 'users_meta' table
       const { error: metaError } = await supabase
         .from('users_meta')
         .update({
@@ -138,9 +138,26 @@ export default async function driverRoutes(fastify) {
 
       if (metaError) console.warn("⚠️ users_meta sync failed:", metaError.message);
 
-      // 5. Prepare Push Notification data (DATA ONLY)
-      let dataPayload;
+      // --- NEW: AUTO CREATE SEAT-BOUND INVITE ON APPROVAL ---
+      if (status === 'approved' && driverRow) {
+        try {
+          const { data: vehicleData } = await supabase
+            .from('vehicles')
+            .select('seat_count')
+            .eq('driver_id', driverRow.id)
+            .maybeSingle();
+            
+          const seatCount = vehicleData?.seat_count || 5; // Default 5 if no vehicle found
+          
+          // Generate a lifetime code (ttlMinutes = null) bounded to the seat capacity
+          await issueDriverInvite(driverRow.id, null, seatCount);
+        } catch (inviteErr) {
+          request.log.error("⚠️ Failed to auto-generate invite code on approval:", inviteErr);
+        }
+      }
 
+      // 5. Prepare Push Notification data
+      let dataPayload;
       if (status === 'approved') {
         dataPayload = { status: "approved" };
       } else if (status === 'rejected') {
@@ -168,12 +185,8 @@ export default async function driverRoutes(fastify) {
   fastify.post("/drivers/profile", { preHandler: verifySupabaseJwt }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
 
-    // DEBUG: LOG THE INCOMING BODY
-    request.log.info({ body: request.body }, "DEBUG: Incoming Profile Update Body");
-
     const parseResult = driverProfileSchema.safeParse(request.body ?? {});
     if (!parseResult.success) {
-      request.log.warn({ errors: parseResult.error.format() }, "DEBUG: Validation Failed");
       return reply.status(400).send({ errors: parseResult.error.format() });
     }
 
@@ -262,18 +275,23 @@ export default async function driverRoutes(fastify) {
     const parsedQuery = inviteQuerySchema.safeParse(request.query ?? {});
     if (!parsedQuery.success) return reply.status(400).send({ errors: parsedQuery.error.format() });
 
-    const options = resolveInviteOptions(parsedQuery.data);
-
     try {
       const driverId = await getDriverIdBySupabaseId(request.user.id);
+      
+      const vehicle = await getDriverVehicle(driverId);
+      const seatCount = vehicle?.seat_count || 1;
+      
+      const options = resolveInviteOptions(parsedQuery.data, seatCount);
+
       if (!options.force) {
         const active = await fetchActiveDriverInvite(driverId);
         if (active) return reply.status(200).send(toInviteResponse(active));
       }
+      
       const invite = await issueDriverInvite(driverId, options.ttlMinutes, options.maxUses);
       return reply.status(200).send(invite);
     } catch (error) {
-      return reply.status(500).send({ message: "Failed to fetch invite" });
+      return reply.status(500).send({ message: "Failed to fetch invite", error: error.message });
     }
   });
 
@@ -283,14 +301,19 @@ export default async function driverRoutes(fastify) {
     const parsedQuery = inviteQuerySchema.safeParse(request.query ?? {});
     if (!parsedQuery.success) return reply.status(400).send({ errors: parsedQuery.error.format() });
 
-    const options = resolveInviteOptions(parsedQuery.data);
-
     try {
       const driverId = await getDriverIdBySupabaseId(request.user.id);
+      
+      // Pull vehicle data to ensure default uses = max seats if not specified
+      const vehicle = await getDriverVehicle(driverId);
+      const seatCount = vehicle?.seat_count || 1;
+
+      const options = resolveInviteOptions(parsedQuery.data, seatCount);
+
       const invite = await issueDriverInvite(driverId, options.ttlMinutes, options.maxUses);
       return reply.status(201).send(invite);
     } catch (error) {
-      return reply.status(500).send({ message: "Failed to issue invite" });
+      return reply.status(500).send({ message: "Failed to issue invite", error: error.message });
     }
   });
 
