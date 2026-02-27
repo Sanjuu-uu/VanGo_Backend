@@ -1,6 +1,14 @@
 import { supabase } from "../config/supabaseClient.js";
 
-export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, phoneVerifiedAt, profileCompletedAt }) {
+export async function upsertUserMeta({
+  supabaseUserId,
+  role,
+  emailVerifiedAt,
+  phoneVerifiedAt,
+  profileCompletedAt,
+  isApproved,
+  fcmToken    // ✅ FCM Token field ready to be updated
+}) {
   if (!supabaseUserId) {
     throw new Error("supabaseUserId is required for upsertUserMeta");
   }
@@ -9,9 +17,10 @@ export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, ph
     supabase_user_id: supabaseUserId,
   };
 
-  if (role !== undefined) {
-    payload.role = role;
-  }
+  if (role !== undefined) payload.role = role;
+  if (isApproved !== undefined) payload.is_approved = isApproved;
+  if (fcmToken !== undefined) payload.fcm_token = fcmToken;
+
   if (emailVerifiedAt !== undefined) {
     payload.email_verified_at = emailVerifiedAt ?? null;
   }
@@ -22,6 +31,7 @@ export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, ph
     payload.profile_completed_at = profileCompletedAt ?? null;
   }
 
+  // If we only have the ID and nothing else to update, skip the database call
   if (Object.keys(payload).length === 1) {
     return;
   }
@@ -37,6 +47,24 @@ export async function upsertUserMeta({ supabaseUserId, role, emailVerifiedAt, ph
   }
 }
 
+export async function updateFcmToken(supabaseUserId, fcmToken) {
+  // Use 'UPDATE' instead of 'UPSERT' to prevent the missing 'role' constraint error
+  const { data, error } = await supabase
+    .from('users_meta')
+    .update({ 
+      fcm_token: fcmToken,
+      updated_at: new Date().toISOString() 
+    })
+    .eq('supabase_user_id', supabaseUserId) // Match the existing user
+    .select(); // Return the updated data
+
+  if (error) {
+    console.error("❌ Database Update Error:", error.message);
+    throw new Error(`Supabase Error: ${error.message}`);
+  }
+  
+  return data;
+}
 function buildDriverPayload(supabaseUserId, data) {
   const payload = {
     supabase_user_id: supabaseUserId,
@@ -68,11 +96,14 @@ function buildDriverPayload(supabaseUserId, data) {
 }
 
 export async function upsertDriverProfile(supabaseUserId, data) {
+  // Ensure user meta exists and is set to driver role
+  // ✅ ADDED: Pass the fcmToken down so it actually saves to the database!
   await upsertUserMeta({
     supabaseUserId,
-    role: "driver"
+    role: "driver",
+    fcmToken: data?.fcmToken
   });
-  
+
   const payload = buildDriverPayload(supabaseUserId, data ?? {});
 
   const { data: result, error } = await supabase
@@ -129,8 +160,8 @@ export async function upsertDriverVehicle(driverId, vehicleData) {
         seat_count: vehicleData.seatCount,
         route_name: vehicleData.routeName,
         vehicle_type: vehicleData.vehicleType,
-        
-        // --- NEW FIELDS MAPPED HERE ---
+
+        // --- NEW FIELDS ---
         vehicle_year: vehicleData.vehicleYear,
         vehicle_color: vehicleData.vehicleColor,
         license_plate: vehicleData.licensePlate,
@@ -164,7 +195,6 @@ export async function getDriverVehicle(driverId) {
 }
 
 export async function upsertParentProfile(supabaseUserId, data) {
-  // 1. Save to 'parents' table (Your data confirms this works)
   const payload = {
     supabase_user_id: supabaseUserId,
     full_name: data?.fullName ?? null,
@@ -188,15 +218,21 @@ export async function upsertParentProfile(supabaseUserId, data) {
     throw new Error(`Failed to upsert parent profile: ${error.message}`);
   }
 
-  // 2. FORCE 'users_meta' UPDATE using UPSERT
-  // FIX: Changed from .update() to .upsert() so it creates the row if missing.
+  // FORCE 'users_meta' UPDATE (also handle FCM token here for future-proofing)
+  const metaPayload = {
+    supabase_user_id: supabaseUserId,
+    profile_completed_at: new Date().toISOString(),
+    role: "parent",
+    is_approved: true, // Parents are usually auto-approved
+  };
+
+  if (data?.fcmToken !== undefined) {
+    metaPayload.fcm_token = data.fcmToken;
+  }
+
   const { error: metaError } = await supabase
     .from("users_meta")
-    .upsert({
-      supabase_user_id: supabaseUserId,
-      profile_completed_at: new Date().toISOString(), // This stops the loop
-      role: "parent",
-    }, { onConflict: "supabase_user_id" });
+    .upsert(metaPayload, { onConflict: "supabase_user_id" });
 
   if (metaError) {
     console.warn("Failed to update users_meta completion status:", metaError.message);

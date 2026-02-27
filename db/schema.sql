@@ -133,6 +133,7 @@ create index if not exists idx_message_threads_parent on message_threads (parent
 create index if not exists idx_messages_thread on messages (thread_id, created_at);
 
 
+drop policy if exists "Drivers upload own documents" on storage.objects;
 create policy "Drivers upload own documents"
 on storage.objects
 for insert
@@ -143,6 +144,7 @@ with check (
 );
 
 
+drop policy if exists "Drivers update own documents" on storage.objects;
 create policy "Drivers update own documents"
 on storage.objects
 for update
@@ -152,12 +154,43 @@ using (
   and split_part(name, '/', 1) = auth.uid()::text
 );
 
+drop policy if exists "Drivers read own documents" on storage.objects;
 create policy "Drivers read own documents"
 on storage.objects
 for select
 to authenticated
 using (
   bucket_id = 'driver-documents'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+drop policy if exists "Drivers upload own face photo" on storage.objects;
+create policy "Drivers upload own face photo"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'driver-photos'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+drop policy if exists "Drivers update own face photo" on storage.objects;
+create policy "Drivers update own face photo"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'driver-photos'
+  and split_part(name, '/', 1) = auth.uid()::text
+);
+
+drop policy if exists "Drivers read own face photo" on storage.objects;
+create policy "Drivers read own face photo"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'driver-photos'
   and split_part(name, '/', 1) = auth.uid()::text
 );
 
@@ -245,24 +278,28 @@ USING (
   AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
 );
 
-ALTER TABLE vehicles
-ADD COLUMN IF NOT EXISTS ownership_type text CHECK (ownership_type IN ('Owner Driver', 'Leased Vehicle', 'Rented Vehicle', 'School Transport Vehicle')),
-ADD COLUMN IF NOT EXISTS vehicle_photos_uploaded_at timestamptz,
-ADD COLUMN IF NOT EXISTS vehicle_docs_uploaded_at timestamptz,
-ADD COLUMN IF NOT EXISTS vehicle_pr_docs_uploaded_at timestamptz;
+DROP POLICY IF EXISTS "Admins can read all driver photos" ON storage.objects;
+CREATE POLICY "Admins can read all driver photos"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'driver-photos' 
+  AND EXISTS (SELECT 1 FROM users_meta WHERE users_meta.supabase_user_id = auth.uid() AND users_meta.role = 'admin')
+);
 
 UPDATE users_meta 
 SET is_approved = true 
 WHERE role = 'admin';
 
+ALTER TABLE vehicles
+ADD COLUMN IF NOT EXISTS vehicle_year text,
+ADD COLUMN IF NOT EXISTS vehicle_color text,
+ADD COLUMN IF NOT EXISTS license_plate text,
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS city text;
 
 
-
-
-
-
-
-create table transport_services (
+create table if not exists transport_services (
   id uuid primary key default gen_random_uuid(),
 
   driver_id uuid not null 
@@ -291,6 +328,7 @@ create table transport_services (
 alter table transport_services enable row level security;
 
 
+drop policy if exists "Driver can create own ads" on transport_services;
 create policy "Driver can create own ads"
 on transport_services
 for insert
@@ -302,6 +340,7 @@ with check (
 );
 
 
+drop policy if exists "Driver can view own ads" on transport_services;
 create policy "Driver can view own ads"
 on transport_services
 for select
@@ -314,7 +353,129 @@ using (
 
 
 
+drop policy if exists "Anyone can view active ads" on transport_services;
 create policy "Anyone can view active ads"
 on transport_services
 for select
 using (is_active = true);
+
+
+alter table transport_services
+add column if not exists vehicle_brand text,
+add column if not exists model_year text,
+
+add column if not exists route_start_lat double precision,
+add column if not exists route_start_lng double precision,
+
+add column if not exists route_stops jsonb default '[]',
+add column if not exists schools jsonb default '[]',
+
+add column if not exists morning_pickup_time text,
+add column if not exists school_arrival_time text,
+add column if not exists afternoon_departure_time text,
+add column if not exists home_drop_time text,
+
+add column if not exists operating_days jsonb default '[]',
+add column if not exists route_type text,
+
+add column if not exists safety_features jsonb default '{}',
+
+add column if not exists vehicle_images jsonb default '{}';
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS home_town text;
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS home_town text;
+
+create table if not exists driver_trip_sessions (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null,
+  driver_id uuid not null references drivers (id) on delete cascade,
+  status text not null default 'active' check (status in ('active', 'paused', 'completed')),
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint driver_trip_sessions_trip_unique unique (trip_id)
+);
+
+create table if not exists active_trip_locations (
+  trip_id uuid primary key,
+  driver_id uuid not null references drivers (id) on delete cascade,
+  latitude double precision not null,
+  longitude double precision not null,
+  speed_kmh double precision,
+  heading double precision,
+  accuracy_m double precision,
+  trip_phase text not null default 'idle',
+  recorded_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists trip_location_history (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null,
+  driver_id uuid not null references drivers (id) on delete cascade,
+  latitude double precision not null,
+  longitude double precision not null,
+  speed_kmh double precision,
+  heading double precision,
+  accuracy_m double precision,
+  trip_phase text not null default 'idle',
+  recorded_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_driver_trip_sessions_driver_id on driver_trip_sessions (driver_id, status);
+create index if not exists idx_active_trip_locations_driver_id on active_trip_locations (driver_id, updated_at desc);
+create index if not exists idx_trip_location_history_trip_id on trip_location_history (trip_id, recorded_at desc);
+create index if not exists idx_trip_location_history_driver_id on trip_location_history (driver_id, recorded_at desc);
+
+create table if not exists trip_geofence_points (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null,
+  driver_id uuid not null references drivers (id) on delete cascade,
+  label text not null check (label in ('pickup', 'school', 'custom')),
+  latitude double precision not null,
+  longitude double precision not null,
+  radius_m double precision not null default 120 check (radius_m > 0),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint trip_geofence_points_trip_label_unique unique (trip_id, label)
+);
+
+create table if not exists trip_geofence_events (
+  id uuid primary key default gen_random_uuid(),
+  point_id uuid not null references trip_geofence_points (id) on delete cascade,
+  trip_id uuid not null,
+  driver_id uuid not null references drivers (id) on delete cascade,
+  label text not null,
+  event_type text not null check (event_type in ('entered', 'exited', 'reached')),
+  distance_m double precision,
+  latitude double precision not null,
+  longitude double precision not null,
+  recorded_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_trip_geofence_points_trip_id on trip_geofence_points (trip_id, is_active);
+create index if not exists idx_trip_geofence_events_trip_id on trip_geofence_events (trip_id, recorded_at desc);
+create index if not exists idx_trip_geofence_events_point_id on trip_geofence_events (point_id, recorded_at desc);
+
+-- Remove old single-school column
+ALTER TABLE transport_services
+DROP COLUMN IF EXISTS destination_school;
+
+-- Remove old town column if exists
+ALTER TABLE transport_services
+DROP COLUMN IF EXISTS town;
+
+-- Keep only structured location fields
+ALTER TABLE transport_services
+ADD COLUMN IF NOT EXISTS province text,
+ADD COLUMN IF NOT EXISTS district text,
+ADD COLUMN IF NOT EXISTS home_town text;

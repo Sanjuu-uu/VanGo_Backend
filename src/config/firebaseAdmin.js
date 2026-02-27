@@ -2,32 +2,23 @@ import admin from "firebase-admin";
 
 if (!admin.apps.length) {
   try {
-    const rawKey = process.env.FIREBASE_PRIVATE_KEY;
+    const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-    if (!rawKey) {
-      throw new Error("FIREBASE_PRIVATE_KEY is missing from .env");
+    if (!serviceAccountStr) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT is missing from .env");
     }
 
-    // Advanced cleaning: Removes accidental quotes, fixes \n, and trims whitespace
-    const formattedKey = rawKey
-      .trim()
-      .replace(/^['"]|['"]$/g, '')
-      .replace(/\\n/g, '\n');
-
-    
+    // Parse the JSON string from the .env file
+    const serviceAccount = JSON.parse(serviceAccountStr);
 
     admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: formattedKey,
-      }),
+      credential: admin.credential.cert(serviceAccount),
     });
 
-    
+    console.log("🔥 Firebase Admin Initialized from Service Account JSON.");
   } catch (error) {
-    console.error("Firebase Admin initialization error:", error.message);
-    process.exit(1); 
+    console.error("❌ Firebase Admin initialization error:", error.message);
+    process.exit(1);
   }
 }
 

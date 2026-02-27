@@ -1,11 +1,37 @@
 import { z } from "zod";
 import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { supabase } from "../config/supabaseClient.js";
+import {
+  getTripPlayback,
+  getTripGeofenceEvents,
+  listDriverTripSessions,
+  resolveTripDriverId,
+  upsertTripGeofencePoint,
+} from "../services/trackingService.js";
 
 // Validation for status updates
 const statusUpdateSchema = z.object({
   status: z.enum(["approved", "rejected", "pending"]),
   reason: z.string().optional(),
+});
+
+const playbackQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
+  order: z.enum(["asc", "desc"]).optional(),
+});
+
+const limitQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(500).optional(),
+});
+
+const geofencePointSchema = z.object({
+  label: z.enum(["pickup", "school", "custom"]),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  radiusM: z.number().positive().max(1000).optional(),
+  isActive: z.boolean().optional(),
 });
 
 // Helper to get signed URLs for private images
@@ -125,6 +151,92 @@ export default async function adminRoutes(fastify) {
       return reply.send({ status: "ok", newStatus: status });
     } catch (error) {
       request.log.error({ error }, "Failed to update driver status");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  fastify.get("/admin/tracking/drivers/:driverId/trips", async (request, reply) => {
+    const { driverId } = request.params;
+    const queryResult = limitQuerySchema.safeParse(request.query ?? {});
+    if (!queryResult.success) {
+      return reply.status(400).send({ errors: queryResult.error.format() });
+    }
+
+    try {
+      const trips = await listDriverTripSessions(driverId, queryResult.data.limit ?? 100);
+      return reply.send(trips);
+    } catch (error) {
+      request.log.error({ error }, "Failed to fetch driver trips for admin");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  fastify.get("/admin/tracking/trips/:tripId/playback", async (request, reply) => {
+    const { tripId } = request.params;
+    const queryResult = playbackQuerySchema.safeParse(request.query ?? {});
+    if (!queryResult.success) {
+      return reply.status(400).send({ errors: queryResult.error.format() });
+    }
+
+    const query = queryResult.data;
+    if (query.from && query.to && new Date(query.from).getTime() > new Date(query.to).getTime()) {
+      return reply.status(400).send({ message: "`from` must be earlier than or equal to `to`" });
+    }
+
+    try {
+      const playback = await getTripPlayback(tripId, {
+        from: query.from,
+        to: query.to,
+        limit: query.limit,
+        order: query.order,
+      });
+
+      return reply.send(playback);
+    } catch (error) {
+      request.log.error({ error }, "Failed to fetch admin trip playback");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  fastify.get("/admin/tracking/trips/:tripId/geofence-events", async (request, reply) => {
+    const { tripId } = request.params;
+    const queryResult = limitQuerySchema.safeParse(request.query ?? {});
+    if (!queryResult.success) {
+      return reply.status(400).send({ errors: queryResult.error.format() });
+    }
+
+    try {
+      const events = await getTripGeofenceEvents(tripId, queryResult.data.limit ?? 100);
+      return reply.send(events);
+    } catch (error) {
+      request.log.error({ error }, "Failed to fetch admin geofence events");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  fastify.put("/admin/tracking/trips/:tripId/geofence-points", async (request, reply) => {
+    const { tripId } = request.params;
+    const parseResult = geofencePointSchema.safeParse(request.body ?? {});
+
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      const driverId = await resolveTripDriverId(tripId);
+      if (!driverId) {
+        return reply.status(404).send({ message: "Trip not found" });
+      }
+
+      const savedPoint = await upsertTripGeofencePoint({
+        tripId,
+        driverId,
+        ...parseResult.data,
+      });
+
+      return reply.send(savedPoint);
+    } catch (error) {
+      request.log.error({ error }, "Failed to upsert geofence point");
       return reply.status(500).send({ message: error.message });
     }
   });
