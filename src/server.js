@@ -16,6 +16,8 @@ import { registerTrackingSocketServer } from "./realtime/trackingSocketServer.js
 import { cleanupTrackingHistory } from "./services/trackingService.js";
 import webhookRoutes from "./routes/webhookRoutes.js";
 import transportServiceRoutes from "./routes/transportServiceRoutes.js";
+// 👇 Added your new emergency routes import
+import emergencyRoutes from "./routes/emergencyRoutes.js";
 
 const fastify = Fastify({
   logger: {
@@ -43,6 +45,9 @@ await fastify.register(cors, {
 
 fastify.register(requestLoggingPlugin);
 
+// ---------------------------------------------------------
+// REGISTER ALL ROUTES
+// ---------------------------------------------------------
 fastify.register(authRoutes, { prefix: "/api" });
 fastify.register(driverRoutes, { prefix: "/api" });
 fastify.register(parentRoutes, { prefix: "/api" });
@@ -53,6 +58,12 @@ fastify.register(trackingRoutes, { prefix: "/api" });
 fastify.register(webhookRoutes, { prefix: "/api" });
 fastify.register(transportServiceRoutes, { prefix: "/api" });
 
+// 👇 Registered your new route (No prefix, so it maps exactly to /emergency/trigger)
+fastify.register(emergencyRoutes);
+
+// ---------------------------------------------------------
+// HEALTH CHECK
+// ---------------------------------------------------------
 fastify.get("/api/health", async (request, reply) => {
   try {
     const { error } = await supabase
