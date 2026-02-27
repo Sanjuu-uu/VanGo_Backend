@@ -22,8 +22,9 @@ function isInviteActive(row) {
 
 function serializeInvite(row) {
   return {
+    id: row.id,
     code: row.code_plain,
-    expiresAt: row.expires_at,
+    expiresAt: row.expires_at, // Will be null for lifetime codes
     maxUses: row.max_uses,
     remainingUses: Math.max((row.max_uses ?? 0) - (row.uses ?? 0), 0),
   };
@@ -44,10 +45,15 @@ export async function fetchActiveDriverInvite(driverId) {
   return (data ?? []).find((row) => isInviteActive(row)) ?? null;
 }
 
-export async function issueDriverInvite(driverId, ttlMinutes = 60, maxUses = 1) {
+// Updated: ttlMinutes defaults to null (lifetime) instead of 60
+export async function issueDriverInvite(driverId, ttlMinutes = null, maxUses = 1) {
   const plainCode = randomCode();
   const hashed = hashCode(plainCode);
-  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+  
+  // If ttlMinutes is provided, set an expiration date. Otherwise, leave it null for lifetime.
+  const expiresAt = ttlMinutes 
+    ? new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString() 
+    : null;
 
   const { data, error } = await supabase
     .from("driver_invites")
