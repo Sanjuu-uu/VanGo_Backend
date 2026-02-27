@@ -1,67 +1,83 @@
 // routes/emergencyRoutes.js
 import { supabase } from "../config/supabaseClient.js";
 import { notificationService } from "../services/notificationService.js";
+import { NOTIFICATION_STRINGS } from "../config/notification_strings.js";
 
-export default async function emergencyRoutes(fastify) {
+// 👇 Notice the name here is exactly emergencyRoutes
+export default async function emergencyRoutes(fastify) {  
+  
+  // 👇 Notice the route here is exactly /emergency/trigger
   fastify.post("/emergency/trigger", async (request, reply) => {
     try {
-      // 👇 CHANGED: Used supabase_user_id to perfectly match Flutter and your SQL table
-      const { supabase_user_id, emergency_type, category, message } = request.body;
+      const { supabase_user_id, emergency_type, category } = request.body;
 
-      // Quick validation
       if (!supabase_user_id || !emergency_type || !category) {
         request.log.warn("Missing emergency data from Flutter app");
         return reply.status(400).send({ error: "Missing required fields" });
       }
 
-      // 🚨 STEP 1: IDENTIFY & LOG IT IN THE DATABASE FIRST
-      // This creates the permanent audit trail!
       const { data: emergencyRecord, error: dbError } = await supabase
         .from("emergencies")
         .insert([{ 
-            supabase_user_id: supabase_user_id, // 👇 CHANGED: Matches SQL column
+            supabase_user_id: supabase_user_id, 
             emergency_type: emergency_type, 
-            category: category, 
-            message: message || null, 
+            category: category,  
             level: 1, 
-            status: "active" // Starts as active until parent acknowledges it
+            status: "active" 
         }])
         .select()
         .single();
 
       if (dbError) throw dbError;
 
-      // 🚨 STEP 2: SEND THE NOTIFICATIONS
-      // Now that we have proof it was triggered, we alert the parents.
-      
-      const { data: parents, error: parentError } = await supabase.from("parents").select("id");
+      const typeKey = emergency_type.toUpperCase().replace(/\s+/g, "_");
+      const content = NOTIFICATION_STRINGS.EMERGENCIES[typeKey] || NOTIFICATION_STRINGS.EMERGENCIES.DEFAULT;
+      const finalBody = content.body;
+
+      const { data: parents, error: parentError } = await supabase
+        .from("parents")
+        .select("supabase_user_id");
       
       if (parentError) {
-        request.log.error({ parentError }, "Failed to fetch parents for notification");
-        // We don't throw an error here because the emergency was still saved to the DB
+        request.log.error({ parentError }, "Failed to fetch parents");
       }
 
-      const title = `🚨 CRITICAL ALERT: ${emergency_type}`;
-      const body = message || "Please check the app immediately.";
-
-      // Send to all parents (you can filter this by trip later)
       if (parents && parents.length > 0) {
         const notificationPromises = parents.map((parent) => {
-          return notificationService.notifyUser(parent.id, title, body, { 
+          return notificationService.notifyUser(
+            parent.supabase_user_id, 
+            content.title, 
+            finalBody, 
+            { 
               type: "emergency", 
-              emergency_id: emergencyRecord.id 
-          });
+              emergency_id: emergencyRecord.id,
+              category: category 
+            }
+          );
         });
 
         await Promise.all(notificationPromises);
+
+        const logEntries = parents.map(parent => ({
+          user_id: parent.supabase_user_id,
+          title: content.title,
+          message: finalBody,
+          notification_type: "EMERGENCY_ALERT",
+          reference_id: emergencyRecord.id
+        }));
+
+        const { error: logError } = await supabase.from("notification_logs").insert(logEntries);
+        
+        if (logError) {
+           request.log.error("Failed to save notification logs:", logError);
+        }
       }
 
-      // Tell the driver app it was a success!
       request.log.info({ emergencyId: emergencyRecord.id }, "✅ Emergency Logged and Notifications Sent");
       return reply.send({ success: true, message: "Logged and sent!" });
 
     } catch (error) {
-      fastify.log.error("Emergency trigger error:", error);
+      request.log.error("Emergency trigger error:", error);
       return reply.status(500).send({ error: "Failed to process emergency" });
     }
   });
