@@ -15,6 +15,7 @@ import trackingRoutes from "./routes/trackingRoutes.js";
 import { registerTrackingSocketServer } from "./realtime/trackingSocketServer.js";
 import { cleanupTrackingHistory } from "./services/trackingService.js";
 import webhookRoutes from "./routes/webhookRoutes.js";
+import transportServiceRoutes from "./routes/transportServiceRoutes.js";
 
 const fastify = Fastify({
   logger: {
@@ -50,6 +51,7 @@ fastify.register(adminAuthRoutes, { prefix: "/api" });
 fastify.register(notificationRoutes, { prefix: "/api" });
 fastify.register(trackingRoutes, { prefix: "/api" });
 fastify.register(webhookRoutes, { prefix: "/api" });
+fastify.register(transportServiceRoutes, { prefix: "/api" });
 
 fastify.get("/api/health", async (request, reply) => {
   try {
