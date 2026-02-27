@@ -317,4 +317,82 @@ export default async function driverRoutes(fastify) {
     }
   });
 
+  // 1. Get History of Invites
+  fastify.get("/drivers/invite/history", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    try {
+      const driverId = await getDriverIdBySupabaseId(request.user.id);
+      
+      const { data, error } = await supabase
+        .from("driver_invites")
+        .select("*")
+        .eq("driver_id", driverId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      // Map it for the app
+      const history = (data || []).map(row => {
+        const stillValid = !row.expires_at || new Date(row.expires_at) > new Date();
+        const hasCapacity = (row.uses ?? 0) < (row.max_uses ?? 1);
+        return {
+          id: row.id,
+          code: row.code_plain,
+          expiresAt: row.expires_at,
+          maxUses: row.max_uses,
+          remainingUses: Math.max((row.max_uses ?? 0) - (row.uses ?? 0), 0),
+          isActive: stillValid && hasCapacity
+        };
+      });
+
+      return reply.status(200).send(history);
+    } catch (error) {
+      return reply.status(500).send({ message: "Failed to load invite history" });
+    }
+  });
+
+  // 2. Edit an existing Invite
+  fastify.patch("/drivers/invite/:inviteId", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    const { inviteId } = request.params;
+    const { maxUses, ttlMinutes } = request.body;
+
+    try {
+      const updates = {};
+      if (maxUses !== undefined) updates.max_uses = maxUses;
+      if (ttlMinutes !== undefined) {
+        updates.expires_at = ttlMinutes === null 
+          ? null 
+          : new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+      }
+
+      const { data, error } = await supabase
+        .from("driver_invites")
+        .update(updates)
+        .eq("id", inviteId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return reply.status(200).send({ status: "ok", data });
+    } catch (error) {
+      return reply.status(500).send({ message: "Failed to update invite" });
+    }
+  });
+
+  // 3. Revoke an Invite
+  fastify.patch("/drivers/invite/:inviteId/revoke", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    const { inviteId } = request.params;
+    try {
+      // Setting expires_at to past ensures it's instantly inactive
+      const { error } = await supabase
+        .from("driver_invites")
+        .update({ expires_at: new Date(Date.now() - 1000).toISOString() }) 
+        .eq("id", inviteId);
+
+      if (error) throw error;
+      return reply.status(200).send({ status: "ok" });
+    } catch (error) {
+      return reply.status(500).send({ message: "Failed to revoke invite" });
+    }
+  });
+
 }
