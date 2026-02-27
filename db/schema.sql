@@ -479,3 +479,14 @@ ALTER TABLE transport_services
 ADD COLUMN IF NOT EXISTS province text,
 ADD COLUMN IF NOT EXISTS district text,
 ADD COLUMN IF NOT EXISTS home_town text;
+
+CREATE TABLE emergencies (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    driver_id UUID NOT NULL,
+    emergency_type TEXT NOT NULL, -- e.g., 'Vehicle Breakdown', 'Medical Emergency'
+    category TEXT NOT NULL,       -- e.g., 'CRITICAL', 'SITUATIONAL'
+    message TEXT,                 -- The optional message from the UI
+    level INT DEFAULT 1,          -- Starts at 1 (Push only)
+    status TEXT DEFAULT 'active', -- 'active', 'acknowledged', 'resolved'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
