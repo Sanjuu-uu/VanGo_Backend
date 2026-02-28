@@ -481,8 +481,7 @@ ADD COLUMN IF NOT EXISTS province text,
 ADD COLUMN IF NOT EXISTS district text,
 ADD COLUMN IF NOT EXISTS home_town text;
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+
 CREATE TABLE emergencies (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     driver_id UUID NOT NULL,
@@ -493,16 +492,7 @@ CREATE TABLE emergencies (
     status TEXT DEFAULT 'active', -- 'active', 'acknowledged', 'resolved'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-=======
--- Add reports column to drivers table -- sadeepa
-ALTER TABLE drivers
-ADD COLUMN IF NOT EXISTS reports jsonb DEFAULT '[]';
->>>>>>> Stashed changes
-=======
--- Add reports column to drivers table -- sadeepa
-ALTER TABLE drivers
-ADD COLUMN IF NOT EXISTS reports jsonb DEFAULT '[]';
->>>>>>> Stashed changes
+
 
 -- Create driver_reports table
 CREATE TABLE IF NOT EXISTS driver_reports (
