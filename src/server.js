@@ -18,6 +18,9 @@ import webhookNotificationRoutes from "./routes/webhookNotificationRoutes.js";
 import webhookVerificationRoutes from "./routes/webhookVerificationRoutes.js";
 import documentRoutes from './routes/documentRoutes.js';
 import verificationRoutes from './routes/verificationRoutes.js'
+import transportServiceRoutes from "./routes/transportServiceRoutes.js";
+// 👇 Added your new emergency routes import
+import emergencyRoutes from "./routes/emergencyRoutes.js";
 
 const fastify = Fastify({
   logger: {
@@ -45,6 +48,9 @@ await fastify.register(cors, {
 
 fastify.register(requestLoggingPlugin);
 
+// ---------------------------------------------------------
+// REGISTER ALL ROUTES
+// ---------------------------------------------------------
 fastify.register(authRoutes, { prefix: "/api" });
 fastify.register(driverRoutes, { prefix: "/api" });
 fastify.register(parentRoutes, { prefix: "/api" });
@@ -56,7 +62,15 @@ fastify.register(webhookNotificationRoutes, { prefix: "/api" });
 fastify.register(webhookVerificationRoutes, { prefix: "/api" });
 fastify.register(documentRoutes, { prefix: "/api" });
 fastify.register(verificationRoutes, { prefix: "/api" });
+fastify.register(transportServiceRoutes, { prefix: "/api" });
+fastify.register(emergencyRoutes, { prefix: "/api" });
 
+// 👇 Registered your new route (No prefix, so it maps exactly to /emergency/trigger)
+fastify.register(emergencyRoutes);
+
+// ---------------------------------------------------------
+// HEALTH CHECK
+// ---------------------------------------------------------
 fastify.get("/api/health", async (request, reply) => {
   try {
     const { error } = await supabase

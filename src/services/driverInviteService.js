@@ -30,6 +30,32 @@ function serializeInvite(row) {
   };
 }
 
+
+export async function getOrCreateDriverInvite(driverId) {
+  // 1. Check if an active invite already exists for this driver
+  const { data: existing, error: fetchError } = await supabase
+    .from("driver_invites")
+    .select("id, code")
+    .eq("driver_id", driverId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (existing) return existing.code;
+
+  // 2. If not, generate a new one
+  const newCode = generateCode();
+  const { error: insertError } = await supabase
+    .from("driver_invites")
+    .insert({
+      driver_id: driverId,
+      code: newCode,
+      status: "active"
+    });
+
+  if (insertError) throw new Error("Failed to generate invite code");
+  return newCode;
+}
+
 export async function fetchActiveDriverInvite(driverId) {
   const { data, error } = await supabase
     .from("driver_invites")

@@ -9,6 +9,7 @@ create table if not exists users_meta (
   updated_at timestamptz not null default now()
 );
 
+
 create table if not exists drivers (
   id uuid primary key default gen_random_uuid(),
   supabase_user_id uuid unique not null references users_meta (supabase_user_id) on delete cascade,
@@ -48,6 +49,9 @@ create table if not exists driver_invites (
   uses integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_driver_invites_code ON driver_invites(code);
+
 
 create table if not exists parents (
   id uuid primary key default gen_random_uuid(),
@@ -479,3 +483,103 @@ ALTER TABLE transport_services
 ADD COLUMN IF NOT EXISTS province text,
 ADD COLUMN IF NOT EXISTS district text,
 ADD COLUMN IF NOT EXISTS home_town text;
+
+
+CREATE TABLE emergencies (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    driver_id UUID NOT NULL,
+    emergency_type TEXT NOT NULL, -- e.g., 'Vehicle Breakdown', 'Medical Emergency'
+    category TEXT NOT NULL,       -- e.g., 'CRITICAL', 'SITUATIONAL'
+    message TEXT,                 -- The optional message from the UI
+    level INT DEFAULT 1,          -- Starts at 1 (Push only)
+    status TEXT DEFAULT 'active', -- 'active', 'acknowledged', 'resolved'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+
+-- Create driver_reports table
+CREATE TABLE IF NOT EXISTS driver_reports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+  parent_id uuid REFERENCES parents(id) ON DELETE SET NULL,
+  report_reason text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'resolved', 'dismissed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_driver_reports_driver_id ON driver_reports(driver_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_reports_parent_id ON driver_reports(parent_id);
+CREATE INDEX IF NOT EXISTS idx_driver_reports_status ON driver_reports(status);
+
+-- Enable RLS
+ALTER TABLE driver_reports ENABLE ROW LEVEL SECURITY;
+
+-- Parents can submit reports
+DROP POLICY IF EXISTS "Parents can create reports" ON driver_reports;
+CREATE POLICY "Parents can create reports"
+ON driver_reports
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  parent_id IN (
+    SELECT id FROM parents
+    WHERE supabase_user_id = auth.uid()
+  )
+);
+
+-- Parents can view their own reports
+DROP POLICY IF EXISTS "Parents can view own reports" ON driver_reports;
+CREATE POLICY "Parents can view own reports"
+ON driver_reports
+FOR SELECT
+TO authenticated
+USING (
+  parent_id IN (
+    SELECT id FROM parents
+    WHERE supabase_user_id = auth.uid()
+  )
+);
+
+-- Admins can view all reports
+DROP POLICY IF EXISTS "Admins can view all reports" ON driver_reports;
+CREATE POLICY "Admins can view all reports"
+ON driver_reports
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users_meta
+    WHERE users_meta.supabase_user_id = auth.uid()
+    AND users_meta.role = 'admin'
+  )
+);
+
+-- Admins can update report status
+DROP POLICY IF EXISTS "Admins can update reports" ON driver_reports;
+CREATE POLICY "Admins can update reports"
+ON driver_reports
+FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users_meta
+    WHERE users_meta.supabase_user_id = auth.uid()
+    AND users_meta.role = 'admin'
+  )
+);
+-- Driver reports table
+CREATE TABLE IF NOT EXISTS driver_reports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+  parent_id uuid REFERENCES parents(id) ON DELETE SET NULL,
+  report_reason text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'resolved', 'dismissed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_driver_reports_driver_id ON driver_reports(driver_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_reports_parent_id ON driver_reports(parent_id);
+CREATE INDEX IF NOT EXISTS idx_driver_reports_status ON driver_reports(status);
