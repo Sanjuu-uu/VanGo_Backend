@@ -23,7 +23,8 @@ export default async function emergencyRoutes(fastify) {
             emergency_type: emergency_type, 
             category: category,  
             level: 1, 
-            status: "active" 
+            status: "active",
+            is_solved: false
         }])
         .select()
         .single();
@@ -74,11 +75,41 @@ export default async function emergencyRoutes(fastify) {
       }
 
       request.log.info({ emergencyId: emergencyRecord.id }, "✅ Emergency Logged and Notifications Sent");
-      return reply.send({ success: true, message: "Logged and sent!" });
+      return reply.send({ success: true, message: "Logged and sent!",emergency_id: emergencyRecord.id });
 
     } catch (error) {
       request.log.error("Emergency trigger error:", error);
       return reply.status(500).send({ error: "Failed to process emergency" });
     }
   });
+  fastify.post("/emergency/resolve", async (request, reply) => {
+    try {
+      const { emergency_id } = request.body;
+
+      if (!emergency_id) {
+        return reply.status(400).send({ error: "Missing emergency_id" });
+      }
+
+      // Update the database to mark it as solved
+      const { error: dbError } = await supabase
+        .from("emergencies")
+        .update({ 
+            is_solved: true, 
+            status: "resolved" 
+        })
+        .eq("id", emergency_id);
+
+      if (dbError) throw dbError;
+
+      // Optional: You could send another push notification to parents here saying "Emergency Resolved!"
+
+      return reply.send({ success: true, message: "Emergency marked as solved!" });
+
+    } catch (error) {
+      request.log.error("Emergency resolve error:", error);
+      return reply.status(500).send({ error: "Failed to resolve emergency" });
+    }
+  });
 }
+  
+
