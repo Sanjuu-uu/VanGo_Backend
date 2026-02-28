@@ -3,6 +3,7 @@ import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { upsertParentProfile } from "../services/profileService.js";
 import { markInviteUsed, validateDriverInvite } from "../services/driverInviteService.js";
 import { supabase } from "../config/supabaseClient.js";
+import { getOrCreateDriverInvite } from "../services/driverInviteService.js";
 
 const parentProfileSchema = z.object({
   fullName: z.string().min(1),
@@ -16,6 +17,7 @@ const childSchema = z.object({
   school: z.string().min(1),
   pickupLocation: z.string().min(1),
   pickupTime: z.string().min(1).default("06:45 AM"),
+  inviteCode: z.string().min(1),
 });
 
 const driverLinkSchema = z.object({
@@ -160,12 +162,14 @@ export default async function parentRoutes(fastify) {
 
     try {
       const parentId = await requireParentId(request.user.id);
+      const invite = await validateDriverInvite(parseResult.data.inviteCode);
       const payload = {
         parent_id: parentId,
         child_name: parseResult.data.childName,
         school: parseResult.data.school,
         pickup_location: parseResult.data.pickupLocation,
         pickup_time: parseResult.data.pickupTime,
+        linked_driver_id: invite.driver_id,
       };
 
       const { data, error } = await supabase
@@ -249,6 +253,31 @@ export default async function parentRoutes(fastify) {
     } catch (error) {
       request.log.warn({ error }, "Failed to update attendance");
       return reply.status(400).send({ message: error.message });
+    }
+  });
+
+  
+  
+  fastify.get("/drivers/invite-code", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
+
+    try {
+      const { data: driver, error: driverError } = await supabase
+        .from("drivers")
+        .select("id")
+        .eq("supabase_user_id", request.user.id)
+        .single();
+
+      if (driverError || !driver) {
+        return reply.status(404).send({ message: "Driver profile not found" });
+      }
+
+      const code = await getOrCreateDriverInvite(driver.id);
+
+      return reply.status(200).send({ inviteCode: code });
+    } catch (error) {
+      request.log.error({ error }, "Failed to get invite code");
+      return reply.status(500).send({ message: error.message });
     }
   });
 
