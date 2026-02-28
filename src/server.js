@@ -59,8 +59,8 @@ fastify.register(webhookRoutes, { prefix: "/api" });
 fastify.register(transportServiceRoutes, { prefix: "/api" });
 fastify.register(emergencyRoutes, { prefix: "/api" });
 
-// 👇 Registered your new route (No prefix, so it maps exactly to /emergency/trigger)
-fastify.register(emergencyRoutes);
+
+
 
 // ---------------------------------------------------------
 // HEALTH CHECK
