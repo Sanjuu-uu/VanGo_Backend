@@ -10,9 +10,12 @@
     "smoke": "node --env-file=.env scripts/workflowSmokeTest.js"
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1000.0",
+    "@aws-sdk/client-textract": "^3.1000.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^10.3.0",
     "@supabase/supabase-js": "2.45.1",
+    "dayjs": "^1.11.19",
     "fastify": "^5.7.4",
     "fastify-plugin": "4.5.1",
     "firebase-admin": "^13.6.1",
@@ -20,6 +23,7 @@
     "pino": "9.3.1",
     "pino-pretty": "^11.2.2",
     "socket.io": "^4.8.3",
+    "string-similarity": "^4.0.4",
     "zod": "3.23.8"
   },
   "devDependencies": {

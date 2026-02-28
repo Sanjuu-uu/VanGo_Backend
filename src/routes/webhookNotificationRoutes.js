@@ -2,7 +2,7 @@ import { notificationService } from "../services/notificationService.js";
 import { NOTIFICATION_STRINGS } from "../config/notification_strings.js"; 
 import { supabase } from "../config/supabaseClient.js";
 
-export default async function webhookRoutes(fastify) {
+export default async function webhookNotificationRoutes(fastify) {
   fastify.post("/webhooks/database", async (request, reply) => {
     // 1. SECURITY CHECK: Verify this request actually came from YOUR Supabase
     const secretHeader = request.headers["x-webhook-secret"];
