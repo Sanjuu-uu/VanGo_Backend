@@ -3,7 +3,6 @@ import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { upsertParentProfile } from "../services/profileService.js";
 import { markInviteUsed, validateDriverInvite } from "../services/driverInviteService.js";
 import { supabase } from "../config/supabaseClient.js";
-import { getOrCreateDriverInvite } from "../services/driverInviteService.js";
 
 const parentProfileSchema = z.object({
   fullName: z.string().min(1),
@@ -17,7 +16,6 @@ const childSchema = z.object({
   school: z.string().min(1),
   pickupLocation: z.string().min(1),
   pickupTime: z.string().min(1).default("06:45 AM"),
-  inviteCode: z.string().min(1),
 });
 
 const driverLinkSchema = z.object({
@@ -162,14 +160,12 @@ export default async function parentRoutes(fastify) {
 
     try {
       const parentId = await requireParentId(request.user.id);
-      const invite = await validateDriverInvite(parseResult.data.inviteCode);
       const payload = {
         parent_id: parentId,
         child_name: parseResult.data.childName,
         school: parseResult.data.school,
         pickup_location: parseResult.data.pickupLocation,
         pickup_time: parseResult.data.pickupTime,
-        linked_driver_id: invite.driver_id,
       };
 
       const { data, error } = await supabase
@@ -253,31 +249,6 @@ export default async function parentRoutes(fastify) {
     } catch (error) {
       request.log.warn({ error }, "Failed to update attendance");
       return reply.status(400).send({ message: error.message });
-    }
-  });
-
-  
-  
-  fastify.get("/drivers/invite-code", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-    if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
-
-    try {
-      const { data: driver, error: driverError } = await supabase
-        .from("drivers")
-        .select("id")
-        .eq("supabase_user_id", request.user.id)
-        .single();
-
-      if (driverError || !driver) {
-        return reply.status(404).send({ message: "Driver profile not found" });
-      }
-
-      const code = await getOrCreateDriverInvite(driver.id);
-
-      return reply.status(200).send({ inviteCode: code });
-    } catch (error) {
-      request.log.error({ error }, "Failed to get invite code");
-      return reply.status(500).send({ message: error.message });
     }
   });
 
@@ -845,6 +816,81 @@ export default async function parentRoutes(fastify) {
       });
     } catch (error) {
       request.log.error({ error }, "Failed to submit driver report");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  // ── NEW: Create booking request ───────────────────────────────────────────
+  fastify.post("/parents/booking-requests", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ message: "Unauthenticated" });
+    }
+
+    const parseResult = z.object({
+      vehicleId: z.string().uuid(),
+      childIds: z.array(z.string().uuid()).min(1),
+      note: z.string().optional(),
+    }).safeParse(request.body ?? {});
+
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      const parentId = await requireParentId(request.user.id);
+      const { vehicleId, childIds, note } = parseResult.data;
+
+      // Resolve driver_id from vehicle
+      const { data: vehicle, error: vehicleError } = await supabase
+        .from("vehicles")
+        .select("driver_id")
+        .eq("id", vehicleId)
+        .single();
+
+      if (vehicleError || !vehicle) {
+        return reply.status(404).send({ message: "Vehicle not found" });
+      }
+
+      // Verify all childIds belong to this parent
+      const { data: children, error: childrenError } = await supabase
+        .from("children")
+        .select("id")
+        .eq("parent_id", parentId)
+        .in("id", childIds);
+
+      if (childrenError) {
+        throw new Error(childrenError.message);
+      }
+
+      if (!children || children.length !== childIds.length) {
+        return reply.status(400).send({ message: "One or more children not found" });
+      }
+
+      // Insert booking request
+      const { data, error } = await supabase
+        .from("booking_requests")
+        .insert({
+          parent_id: parentId,
+          vehicle_id: vehicleId,
+          driver_id: vehicle.driver_id,
+          child_ids: childIds,
+          status: "pending",
+          note: note ?? null,
+        })
+        .select("id, status, created_at")
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message ?? "Failed to create booking request");
+      }
+
+      return reply.status(201).send({
+        bookingId: data.id,
+        status: data.status,
+        createdAt: data.created_at,
+      });
+    } catch (error) {
+      request.log.error({ error }, "Failed to create booking request");
       return reply.status(500).send({ message: error.message });
     }
   });
