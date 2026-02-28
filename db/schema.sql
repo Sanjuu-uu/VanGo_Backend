@@ -50,6 +50,9 @@ create table if not exists driver_invites (
   created_at timestamptz not null default now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_driver_invites_code ON driver_invites(code);
+
+
 create table if not exists parents (
   id uuid primary key default gen_random_uuid(),
   supabase_user_id uuid unique not null references users_meta (supabase_user_id) on delete cascade,
