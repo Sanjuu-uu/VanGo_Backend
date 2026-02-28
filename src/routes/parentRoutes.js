@@ -7,10 +7,9 @@ import { supabase } from "../config/supabaseClient.js";
 const parentProfileSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().min(5),
-  email: z.string().email().optional(), 
+  email: z.string().email().optional(),
   relationship: z.string().min(1).optional(),
 });
-
 
 const childSchema = z.object({
   childName: z.string().min(1),
@@ -90,23 +89,6 @@ async function fetchDriverSummary(driverId) {
   if (!data) {
     throw new Error("Driver not found");
   }
-  // ADD THIS BLOCK (Suggested Line 92)
-fastify.get("/parents/profile", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-  if (!request.user) return reply.status(401).send({ message: "Unauthenticated" });
-
-  try {
-    const { data, error } = await supabase
-      .from("parents")
-      .select("full_name")
-      .eq("supabase_user_id", request.user.id)
-      .single();
-
-    if (error) throw new Error(error.message);
-    return reply.status(200).send(data);
-  } catch (error) {
-    return reply.status(500).send({ message: error.message });
-  }
-});
 
   return {
     id: data.id,
@@ -129,7 +111,6 @@ export default async function parentRoutes(fastify) {
         .single();
 
       if (error) {
-        // If row doesn't exist yet, return a default object instead of an error
         if (error.code === 'PGRST116') {
           return reply.status(200).send({ full_name: "Parent", phone: "" });
         }
@@ -142,24 +123,23 @@ export default async function parentRoutes(fastify) {
       return reply.status(500).send({ message: "Database retrieval failed" });
     }
   });
+
   fastify.post("/parents/profile", { preHandler: verifySupabaseJwt }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ message: "Unauthenticated" });
     }
 
-    // Validate incoming data matches the updated schema
     const parseResult = parentProfileSchema.safeParse(request.body ?? {});
     if (!parseResult.success) {
       return reply.status(400).send({ errors: parseResult.error.format() });
     }
 
     try {
-      // Pass the new fields (email, relationship) to your service
       await upsertParentProfile(request.user.id, {
         fullName: parseResult.data.fullName,
         phone: parseResult.data.phone,
-        email: parseResult.data.email,           // Pass email
-        relationship: parseResult.data.relationship // Pass relationship
+        email: parseResult.data.email,
+        relationship: parseResult.data.relationship,
       });
       return reply.status(200).send({ status: "ok" });
     } catch (error) {
@@ -168,8 +148,6 @@ export default async function parentRoutes(fastify) {
     }
   });
 
-  // ... (Rest of your routes remain unchanged) ...
-  
   fastify.post("/parents/children", { preHandler: verifySupabaseJwt }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ message: "Unauthenticated" });
@@ -726,58 +704,119 @@ export default async function parentRoutes(fastify) {
       return reply.status(500).send({ message: error.message });
     }
   });
-  // ADD before the last closing } of the file
-fastify.get("/parents/finder/services/detailed", { preHandler: verifySupabaseJwt }, async (request, reply) => {
-  if (!request.user) {
-    return reply.status(401).send({ message: "Unauthenticated" });
-  }
 
-  const queryParse = finderQuerySchema.safeParse(request.query ?? {});
-  if (!queryParse.success) {
-    return reply.status(400).send({ errors: queryParse.error.format() });
-  }
-
-  try {
-    const { vehicleType, sortBy } = queryParse.data;
-    let query = supabase
-      .from("vehicles")
-      .select(
-        "id, vehicle_type, seat_count, monthly_fee, distance_km, image_url, rating, route_name, driver:drivers(first_name, last_name, phone)"
-      )
-      .limit(100);
-
-    if (vehicleType) {
-      query = query.eq("vehicle_type", vehicleType);
+  // ── NEW: Detailed finder with driver phone ────────────────────────────────
+  fastify.get("/parents/finder/services/detailed", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ message: "Unauthenticated" });
     }
 
-    const sortColumn = sortBy === "price" ? "monthly_fee" : sortBy === "distance" ? "distance_km" : "rating";
-    const ascending = sortBy === "price" || sortBy === "distance";
-    query = query.order(sortColumn, { ascending, nullsFirst: ascending });
+    const queryParse = finderQuerySchema.safeParse(request.query ?? {});
+    if (!queryParse.success) {
+      return reply.status(400).send({ errors: queryParse.error.format() });
+    }
 
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    try {
+      const { vehicleType, sortBy } = queryParse.data;
+      let query = supabase
+        .from("vehicles")
+        .select(
+          "id, vehicle_type, seat_count, monthly_fee, distance_km, image_url, rating, route_name, driver:drivers(first_name, last_name, phone)"
+        )
+        .limit(100);
 
-    const normalized = (data ?? []).map((row) => {
-      const driver = row.driver ?? null;
-      const driverName = [driver?.first_name, driver?.last_name].filter(Boolean).join(" ") || "Driver";
-      return {
-        id: row.id,
-        driverName,
-        driverPhone: driver?.phone ?? "",
-        vehicleType: row.vehicle_type,
-        seats: row.seat_count,
-        price: row.monthly_fee,
-        distance: row.distance_km,
-        route: row.route_name,
-        rating: row.rating,
-        vehicleImageUrl: row.image_url,
-      };
-    });
+      if (vehicleType) {
+        query = query.eq("vehicle_type", vehicleType);
+      }
 
-    return reply.status(200).send(normalized);
-  } catch (error) {
-    request.log.error({ error }, "Failed to load detailed finder services");
-    return reply.status(500).send({ message: error.message });
-  }
-});
+      const sortColumn = sortBy === "price" ? "monthly_fee" : sortBy === "distance" ? "distance_km" : "rating";
+      const ascending = sortBy === "price" || sortBy === "distance";
+      query = query.order(sortColumn, { ascending, nullsFirst: ascending });
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      const normalized = (data ?? []).map((row) => {
+        const driver = row.driver ?? null;
+        const driverName = [driver?.first_name, driver?.last_name].filter(Boolean).join(" ") || "Driver";
+        return {
+          id: row.id,
+          driverName,
+          driverPhone: driver?.phone ?? "",
+          vehicleType: row.vehicle_type,
+          seats: row.seat_count,
+          price: row.monthly_fee,
+          distance: row.distance_km,
+          route: row.route_name,
+          rating: row.rating,
+          vehicleImageUrl: row.image_url,
+        };
+      });
+
+      return reply.status(200).send(normalized);
+    } catch (error) {
+      request.log.error({ error }, "Failed to load detailed finder services");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
+
+  // ── NEW: Submit driver report ─────────────────────────────────────────────
+  fastify.post("/parents/drivers/:driverId/report", { preHandler: verifySupabaseJwt }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ message: "Unauthenticated" });
+    }
+
+    const driverId = request.params?.driverId;
+    if (!driverId) {
+      return reply.status(400).send({ message: "Missing driverId" });
+    }
+
+    const parseResult = z.object({
+      reason: z.string().min(5),
+    }).safeParse(request.body ?? {});
+
+    if (!parseResult.success) {
+      return reply.status(400).send({ errors: parseResult.error.format() });
+    }
+
+    try {
+      const parentId = await requireParentId(request.user.id);
+
+      // driverId here is actually a vehicle id (from DriverProfile.id in Flutter)
+      // so we resolve the real driver_id through the vehicles table
+      const { data: vehicle, error: vehicleError } = await supabase
+        .from("vehicles")
+        .select("driver_id")
+        .eq("id", driverId)
+        .single();
+
+      if (vehicleError || !vehicle) {
+        return reply.status(404).send({ message: "Vehicle not found" });
+      }
+
+      const { data, error } = await supabase
+        .from("driver_reports")
+        .insert({
+          driver_id: vehicle.driver_id,
+          parent_id: parentId,
+          report_reason: parseResult.data.reason,
+          status: "pending",
+        })
+        .select("id, status, created_at")
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message ?? "Failed to submit report");
+      }
+
+      return reply.status(201).send({
+        reportId: data.id,
+        status: data.status,
+        submittedAt: data.created_at,
+      });
+    } catch (error) {
+      request.log.error({ error }, "Failed to submit driver report");
+      return reply.status(500).send({ message: error.message });
+    }
+  });
 }
