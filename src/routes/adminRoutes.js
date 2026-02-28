@@ -105,9 +105,9 @@ export default async function adminRoutes(fastify) {
       const userId = driver.supabase_user_id;
 
       const [faceUrl, licenseFrontUrl, licenseBackUrl] = await Promise.all([
-        getSignedUrl("driver-photos", `${userId}/face.jpg`),
-        getSignedUrl("driver-documents", `${userId}/license_front.jpg`),
-        getSignedUrl("driver-documents", `${userId}/license_back.jpg`),
+        getSignedUrl("driver-documents", `${userId}/driver/face.jpg`),
+        getSignedUrl("driver-documents", `${userId}/driver/license_front.jpg`),
+        getSignedUrl("driver-documents", `${userId}/driver/license_back.jpg`),
       ]);
 
       return reply.send({
