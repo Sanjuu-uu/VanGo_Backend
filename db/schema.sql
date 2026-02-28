@@ -9,6 +9,7 @@ create table if not exists users_meta (
   updated_at timestamptz not null default now()
 );
 
+
 create table if not exists drivers (
   id uuid primary key default gen_random_uuid(),
   supabase_user_id uuid unique not null references users_meta (supabase_user_id) on delete cascade,
@@ -480,6 +481,7 @@ ADD COLUMN IF NOT EXISTS province text,
 ADD COLUMN IF NOT EXISTS district text,
 ADD COLUMN IF NOT EXISTS home_town text;
 
+<<<<<<< Updated upstream
 CREATE TABLE emergencies (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     driver_id UUID NOT NULL,
@@ -490,3 +492,8 @@ CREATE TABLE emergencies (
     status TEXT DEFAULT 'active', -- 'active', 'acknowledged', 'resolved'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+=======
+-- Add reports column to drivers table -- sadeepa
+ALTER TABLE drivers
+ADD COLUMN IF NOT EXISTS reports jsonb DEFAULT '[]';
+>>>>>>> Stashed changes
