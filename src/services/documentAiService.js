@@ -24,14 +24,16 @@ export async function processDocumentWithAi(bucket, filePath, documentType) {
     let queries = [];
     if (documentType === 'driving_license') {
       queries = [
-        // Using "ID. No." matches the label "4d. ID. No." on SL Licenses
-        { Text: "What is the ID. No. or Identity Card Number?", Alias: "NIC_NUMBER" }, 
-        // Using "3. Date of Birth" explicitly helps the AI find it
-        { Text: "What is the Date of Birth?", Alias: "DOB" }, 
-        // Using "4b. Expiry" explicitly helps it avoid the issue date
-        { Text: "What is the Date of Expiry?", Alias: "EXPIRY_DATE" }, 
-        { Text: "What is the Name?", Alias: "FULL_NAME" },
-        { Text: "What are the Vehicle Classes?", Alias: "VEHICLE_CLASSES" }
+        // 4c is the NIC / Administrative number on the new SL format
+        { Text: "What is 4c. Administrative number?", Alias: "NIC_NUMBER" }, 
+        // 3 is the Date of Birth
+        { Text: "What is 3. Date of birth?", Alias: "DOB" }, 
+        // 11 is the expiry per category
+        { Text: "What is 11. Date of Expiry per category?", Alias: "EXPIRY_DATE" }, 
+        // 1,2 contains the full names
+        { Text: "What is 1,2. Surname and Other names?", Alias: "FULL_NAME" },
+        // 9 contains the vehicle classes (A, B1, etc.)
+        { Text: "What is 9. Categories of vehicles?", Alias: "VEHICLE_CLASSES" }
       ];
     } else if (documentType === 'insurance') {
       queries = [
