@@ -36,7 +36,7 @@ export async function runFullDriverVerification(userId, driverId) {
     const [licenseFrontReq, licenseBackReq, faceReq, driverRecord, vehicleRecord] = await Promise.all([
       supabase.storage.from("driver-documents").download(licenseFrontPath),
       supabase.storage.from("driver-documents").download(licenseBackPath),
-      supabase.storage.from("driver-photos").download(facePath),
+      supabase.storage.from("driver-documents").download(facePath),
       supabase.from("drivers").select("profile").eq("id", driverId).single(),
       supabase.from("vehicles").select("vehicle_type").eq("driver_id", driverId).maybeSingle()
     ]);
