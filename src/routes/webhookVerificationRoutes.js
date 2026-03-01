@@ -30,10 +30,10 @@ export default async function webhookVerificationRoutes(fastify) {
     fastify.log.info(`New documents_uploaded_at: ${newRecord.documents_uploaded_at}`);
     fastify.log.info("=================================");
 
-    // 2. We only want to run the AI if the documents_uploaded_at timestamp just changed!
+    // 2. We only want to run the AI if the face_photo_uploaded_at timestamp just changed!
     if (
-      newRecord.documents_uploaded_at && 
-      newRecord.documents_uploaded_at !== oldRecord?.documents_uploaded_at &&
+      newRecord.face_photo_uploaded_at && 
+      newRecord.face_photo_uploaded_at !== oldRecord?.face_photo_uploaded_at &&
       newRecord.verification_status === 'pending'
     ) {
       
