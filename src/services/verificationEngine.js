@@ -2,6 +2,10 @@ import { RekognitionClient, CompareFacesCommand } from "@aws-sdk/client-rekognit
 import { supabase } from "../config/supabaseClient.js";
 import { processDocumentWithAi } from "./documentAiService.js";
 import { verifyNicMatchesDob } from "../utils/sriLankanNicValidator.js";
+import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat.js";
+
+dayjs.extend(customParseFormat);
 
 const rekognitionClient = new RekognitionClient({
   region: process.env.AWS_REGION,
@@ -31,9 +35,9 @@ export async function runFullDriverVerification(userId, driverId) {
 
     // --- TEST 1: AWS REKOGNITION FACE MATCH ---
     const compareFacesCommand = new CompareFacesCommand({
-      SourceImage: { Bytes: faceBuffer },      // The Live Selfie
-      TargetImage: { Bytes: licenseBuffer },   // The Driver's License
-      SimilarityThreshold: 80, // Requires 80% similarity to be considered a match
+      SourceImage: { Bytes: faceBuffer },      
+      TargetImage: { Bytes: licenseBuffer },   
+      SimilarityThreshold: 80, 
     });
 
     const faceResult = await rekognitionClient.send(compareFacesCommand);
@@ -51,7 +55,7 @@ export async function runFullDriverVerification(userId, driverId) {
       return { status: "pending_admin", reason: "AI could not read the document clearly." };
     }
 
-    const { NIC_NUMBER, DOB } = textractResult.data;
+    const { NIC_NUMBER, DOB, EXPIRY_DATE } = textractResult.data;
 
     // --- TEST 3: SRI LANKAN NIC MATHEMATICAL CHECK ---
     if (!NIC_NUMBER || !DOB) {
@@ -66,9 +70,31 @@ export async function runFullDriverVerification(userId, driverId) {
       };
     }
 
+    // --- SAVE TO DRIVER_DOCUMENTS TABLE ---
+    let parsedExpiry = null;
+    if (EXPIRY_DATE) {
+       parsedExpiry = dayjs(EXPIRY_DATE, ["DD/MM/YYYY", "YYYY-MM-DD", "DD.MM.YYYY", "YYYY.MM.DD"]);
+    }
+
+    const { error: dbError } = await supabase
+      .from("driver_documents")
+      .upsert({
+        driver_id: driverId,
+        vehicle_id: null, // License is not tied to a specific vehicle
+        document_type: "driving_license",
+        file_path: licensePath,
+        extracted_data: textractResult.data,
+        expiry_date: parsedExpiry?.isValid() ? parsedExpiry.format("YYYY-MM-DD") : null,
+        status: "approved", // If it made it this far down, the doc is approved!
+        rejection_reason: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'driver_id, vehicle_id, document_type' });
+
+    if (dbError) {
+      console.error("Failed to save to driver_documents:", dbError);
+    }
+
     // --- ALL TESTS PASSED! ---
-    // (You can add Vehicle Insurance checks here later)
-    
     return { 
       status: "approved", 
       reason: "All automated security checks passed.",
