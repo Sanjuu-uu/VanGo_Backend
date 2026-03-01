@@ -50,14 +50,19 @@ export function verifyLicenseNicMatchesDob(nicText, dobText) {
   const nicData = extractDobFromNic(nicText);
   if (!nicData.isValid) return { match: false, reason: nicData.error };
 
-  // Clean the extracted DOB (remove '3.', spaces, etc.)
-  const cleanDobText = dobText.replace(/3\.?/gi, '').trim();
+  // FIX: Only remove '3' and '.' if they are at the VERY START of the string (^).
+  // This prevents it from accidentally deleting the number 3 from the actual date (e.g. 03).
+  const cleanDobText = dobText.replace(/^3[\.\s]*/i, '').trim();
   
-  // Notice we added "DD.MM.YYYY" which is the exact format used on the new SL card (09.03.2006)
   const parsedOcrDob = dayjs(cleanDobText, ["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD", "YYYY.MM.DD"]);
   
   if (!parsedOcrDob.isValid()) {
-    return { match: false, reason: `Could not parse Date of Birth from text: ${cleanDobText}` };
+    return { 
+      match: false, 
+      calculatedDob: nicData.dob, // Added so your debug logs still print it
+      ocrDob: "Invalid Date",
+      reason: `Could not parse Date of Birth from text: ${cleanDobText}` 
+    };
   }
 
   const match = nicData.dob === parsedOcrDob.format('YYYY-MM-DD');
