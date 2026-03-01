@@ -57,18 +57,29 @@ export async function runFullDriverVerification(userId, driverId) {
 
     const { NIC_NUMBER, DOB, EXPIRY_DATE } = textractResult.data;
 
-    // --- TEST 3: SRI LANKAN NIC MATHEMATICAL CHECK ---
+    // --- TEST 3: SRI LANKAN DL MATHEMATICAL CHECK ---
     if (!NIC_NUMBER || !DOB) {
-      // Log exactly what textract saw to help you debug if it fails again
       console.log("Textract Raw Data:", textractResult.data);
       return { status: "pending_admin", reason: "Could not find ID. No. or DOB on the Driving License." };
     }
 
     const nicCheck = verifyLicenseNicMatchesDob(NIC_NUMBER, DOB);
+    
+    // ---------------------------------------------------------
+    // 🔍 ADD THIS LOGGING BLOCK TO SEE THE EXACT MISMATCH
+    // ---------------------------------------------------------
+    console.log("================ NIC COMPARISON DEBUG ================");
+    console.log("1. Raw NIC from AWS: ", NIC_NUMBER);
+    console.log("2. Raw DOB from AWS: ", DOB);
+    console.log("3. DOB calculated mathematically from NIC: ", nicCheck.calculatedDob);
+    console.log("4. DOB formatted for comparison: ", nicCheck.ocrDob);
+    console.log("5. Match Result: ", nicCheck.match);
+    console.log("======================================================");
+
     if (!nicCheck.match) {
       return { 
         status: "rejected", 
-        reason: "Tampering detected: Date of birth on card does not match NIC validation." 
+        reason: `Tampering detected: ${nicCheck.reason}` 
       };
     }
 
