@@ -2,11 +2,9 @@ import dayjs from 'dayjs';
 
 /**
  * Cleans the AI extracted text to find just the NIC number.
- * Sri Lankan DLs often return "4c." or "4c" next to the Administrative number.
  */
 function cleanNicString(rawText) {
   if (!rawText) return "";
-  // Remove spaces, dots, and prefixes like '4c', '4c.', '4d', '4d.'
   return rawText.replace(/4[cd]\.?/gi, '').replace(/\s/g, '').trim().toUpperCase();
 }
 
@@ -19,12 +17,12 @@ export function extractDobFromNic(rawNic) {
 
   // OLD FORMAT: e.g., 921234567V
   if (/^[0-9]{9}[V|X]$/.test(nic)) {
-    birthYear = "19" + nic.substring(0, 2);
+    birthYear = parseInt("19" + nic.substring(0, 2), 10);
     dayOfYear = parseInt(nic.substring(2, 5), 10);
   } 
   // NEW FORMAT: e.g., 200606900123
   else if (/^[0-9]{12}$/.test(nic)) {
-    birthYear = nic.substring(0, 4);
+    birthYear = parseInt(nic.substring(0, 4), 10);
     dayOfYear = parseInt(nic.substring(4, 7), 10);
   } 
   else {
@@ -38,7 +36,20 @@ export function extractDobFromNic(rawNic) {
     return { isValid: false, error: "Invalid day of year in NIC" };
   }
 
-  const dob = dayjs(`${birthYear}-01-01`).add(dayOfYear - 1, 'day').format('YYYY-MM-DD');
+  // --- THE SRI LANKAN LEAP YEAR FIX ---
+  // Sri Lankan NICs assume every year has 366 days.
+  // We need to check if the actual birth year is a real leap year.
+  const isLeapYear = (birthYear % 4 === 0 && (birthYear % 100 !== 0 || birthYear % 400 === 0));
+  
+  let dayAdjustment = 1;
+  
+  // If it's NOT a leap year, and the day is past February 28th (day 59), 
+  // we must subtract 2 days to align the NIC calendar with the real-world calendar.
+  if (!isLeapYear && dayOfYear > 59) {
+    dayAdjustment = 2;
+  }
+
+  const dob = dayjs(`${birthYear}-01-01`).add(dayOfYear - dayAdjustment, 'day').format('YYYY-MM-DD');
 
   return { isValid: true, dob, gender: isFemale ? 'Female' : 'Male', birthYear };
 }
@@ -50,16 +61,13 @@ export function verifyLicenseNicMatchesDob(nicText, dobText) {
   const nicData = extractDobFromNic(nicText);
   if (!nicData.isValid) return { match: false, reason: nicData.error };
 
-  // FIX: Only remove '3' and '.' if they are at the VERY START of the string (^).
-  // This prevents it from accidentally deleting the number 3 from the actual date (e.g. 03).
   const cleanDobText = dobText.replace(/^3[\.\s]*/i, '').trim();
-  
   const parsedOcrDob = dayjs(cleanDobText, ["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD", "YYYY.MM.DD"]);
   
   if (!parsedOcrDob.isValid()) {
     return { 
       match: false, 
-      calculatedDob: nicData.dob, // Added so your debug logs still print it
+      calculatedDob: nicData.dob, 
       ocrDob: "Invalid Date",
       reason: `Could not parse Date of Birth from text: ${cleanDobText}` 
     };
