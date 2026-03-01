@@ -1,7 +1,7 @@
 import { RekognitionClient, CompareFacesCommand } from "@aws-sdk/client-rekognition";
 import { supabase } from "../config/supabaseClient.js";
 import { processDocumentWithAi } from "./documentAiService.js";
-import { verifyNicMatchesDob } from "../utils/sriLankanNicValidator.js";
+import { verifyLicenseNicMatchesDob } from "../utils/sriLankanLicenseValidator.js";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat.js";
 
@@ -59,10 +59,12 @@ export async function runFullDriverVerification(userId, driverId) {
 
     // --- TEST 3: SRI LANKAN NIC MATHEMATICAL CHECK ---
     if (!NIC_NUMBER || !DOB) {
-      return { status: "pending_admin", reason: "Could not find NIC or DOB on the document." };
+      // Log exactly what textract saw to help you debug if it fails again
+      console.log("Textract Raw Data:", textractResult.data);
+      return { status: "pending_admin", reason: "Could not find ID. No. or DOB on the Driving License." };
     }
 
-    const nicCheck = verifyNicMatchesDob(NIC_NUMBER, DOB);
+    const nicCheck = verifyLicenseNicMatchesDob(NIC_NUMBER, DOB);
     if (!nicCheck.match) {
       return { 
         status: "rejected", 

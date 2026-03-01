@@ -4,7 +4,7 @@ import customParseFormat from "dayjs/plugin/customParseFormat.js";
 import { verifySupabaseJwt } from "../middleware/verifySupabaseJwt.js";
 import { supabase } from "../config/supabaseClient.js";
 import { processDocumentWithAi } from "../services/documentAiService.js";
-import { verifyNicMatchesDob } from "../utils/sriLankanNicValidator.js";
+import { verifyLicenseNicMatchesDob } from "../utils/sriLankanLicenseValidator.js";
 
 // Enable custom date parsing for dayjs
 dayjs.extend(customParseFormat);
@@ -70,7 +70,7 @@ export default async function documentRoutes(fastify) {
           if (document_type === "driving_license") {
             // Rule: Sri Lankan NIC Mathematical Match
             if (extractedData.NIC_NUMBER && extractedData.DOB) {
-              const nicCheck = verifyNicMatchesDob(extractedData.NIC_NUMBER, extractedData.DOB);
+              const nicCheck = verifyLicenseNicMatchesDob(extractedData.NIC_NUMBER, extractedData.DOB);
               if (!nicCheck.match) {
                 status = "rejected";
                 rejection_reason = nicCheck.reason; // E.g., "DOB on card does not match NIC mathematical validation"
