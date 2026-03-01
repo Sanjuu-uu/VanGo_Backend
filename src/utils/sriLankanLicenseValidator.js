@@ -2,12 +2,12 @@ import dayjs from 'dayjs';
 
 /**
  * Cleans the AI extracted text to find just the NIC number.
- * Sri Lankan DLs often have "4d." or spaces next to the ID.
+ * Sri Lankan DLs often return "4c." or "4c" next to the Administrative number.
  */
 function cleanNicString(rawText) {
   if (!rawText) return "";
-  // Remove all spaces, dots, and common DL prefixes like '4d'
-  return rawText.replace(/4d\.?/gi, '').replace(/\s/g, '').trim().toUpperCase();
+  // Remove spaces, dots, and prefixes like '4c', '4c.', '4d', '4d.'
+  return rawText.replace(/4[cd]\.?/gi, '').replace(/\s/g, '').trim().toUpperCase();
 }
 
 /**
@@ -22,7 +22,7 @@ export function extractDobFromNic(rawNic) {
     birthYear = "19" + nic.substring(0, 2);
     dayOfYear = parseInt(nic.substring(2, 5), 10);
   } 
-  // NEW FORMAT: e.g., 199212304567
+  // NEW FORMAT: e.g., 200606900123
   else if (/^[0-9]{12}$/.test(nic)) {
     birthYear = nic.substring(0, 4);
     dayOfYear = parseInt(nic.substring(4, 7), 10);
@@ -52,7 +52,9 @@ export function verifyLicenseNicMatchesDob(nicText, dobText) {
 
   // Clean the extracted DOB (remove '3.', spaces, etc.)
   const cleanDobText = dobText.replace(/3\.?/gi, '').trim();
-  const parsedOcrDob = dayjs(cleanDobText, ["DD/MM/YYYY", "YYYY-MM-DD", "DD.MM.YYYY", "YYYY.MM.DD"]);
+  
+  // Notice we added "DD.MM.YYYY" which is the exact format used on the new SL card (09.03.2006)
+  const parsedOcrDob = dayjs(cleanDobText, ["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD", "YYYY.MM.DD"]);
   
   if (!parsedOcrDob.isValid()) {
     return { match: false, reason: `Could not parse Date of Birth from text: ${cleanDobText}` };
