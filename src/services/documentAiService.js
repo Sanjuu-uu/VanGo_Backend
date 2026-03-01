@@ -1,5 +1,5 @@
 import { TextractClient, AnalyzeDocumentCommand } from "@aws-sdk/client-textract";
-import { supabase } from "../config/supabaseClient.js"; // Your existing supabase client
+import { supabase } from "../config/supabaseClient.js"; 
 
 const textractClient = new TextractClient({
   region: process.env.AWS_REGION,
@@ -11,7 +11,6 @@ const textractClient = new TextractClient({
 
 export async function processDocumentWithAi(bucket, filePath, documentType) {
   try {
-    // 1. Download image from Supabase Storage
     const { data: fileData, error: downloadError } = await supabase.storage
       .from(bucket)
       .download(filePath);
@@ -20,20 +19,21 @@ export async function processDocumentWithAi(bucket, filePath, documentType) {
 
     const imageBuffer = await fileData.arrayBuffer();
 
-    // 2. Define the Questions (Queries) based on document type
     let queries = [];
-    if (documentType === 'driving_license') {
+    if (documentType === 'driving_license_front') {
       queries = [
-        // 4c is the NIC / Administrative number on the new SL format
         { Text: "What is 4c. Administrative number?", Alias: "NIC_NUMBER" }, 
-        // 3 is the Date of Birth
         { Text: "What is 3. Date of birth?", Alias: "DOB" }, 
-        // 11 is the expiry per category
-        { Text: "What is 11. Date of Expiry per category?", Alias: "EXPIRY_DATE" }, 
-        // 1,2 contains the full names
         { Text: "What is 1,2. Surname and Other names?", Alias: "FULL_NAME" },
-        // 9 contains the vehicle classes (A, B1, etc.)
-        { Text: "What is 9. Categories of vehicles?", Alias: "VEHICLE_CLASSES" }
+        // NEW: Extract License Number and Address from the front
+        { Text: "What is 5. Number of the LICENCE?", Alias: "LICENSE_NUMBER" },
+        { Text: "What is 8. Permanent place of residence?", Alias: "ADDRESS" }
+      ];
+    } else if (documentType === 'driving_license_back') {
+      queries = [
+        // NEW: Extract categories and expiries from the back
+        { Text: "What are the 9. Categories of vehicles?", Alias: "VEHICLE_CLASSES" },
+        { Text: "What are the 11. Date of Expiry per category?", Alias: "EXPIRY_DATES" }
       ];
     } else if (documentType === 'insurance') {
       queries = [
@@ -47,7 +47,6 @@ export async function processDocumentWithAi(bucket, filePath, documentType) {
       ];
     }
 
-    // 3. Send to AWS Textract
     const command = new AnalyzeDocumentCommand({
       Document: { Bytes: Buffer.from(imageBuffer) },
       FeatureTypes: ["QUERIES"],
@@ -56,14 +55,11 @@ export async function processDocumentWithAi(bucket, filePath, documentType) {
 
     const response = await textractClient.send(command);
 
-    // 4. Parse the results
     const extractedData = {};
     const blocks = response.Blocks || [];
     
-    // Map Query results to our Aliases
     for (const block of blocks) {
       if (block.BlockType === "QUERY_RESULT" && block.Text) {
-        // Find the parent query to get the Alias
         const queryBlock = blocks.find(b => 
           b.BlockType === "QUERY" && 
           b.Relationships?.some(rel => rel.Ids.includes(block.Id))
